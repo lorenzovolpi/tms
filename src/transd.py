@@ -37,7 +37,7 @@ from util import (
 EXPERIMENT = "transd"
 log = get_logger(id=f"{PROJECT}.{EXPERIMENT}")
 
-qp.environ["SAMPLE_SIZE"] = 100
+qp.environ["SAMPLE_SIZE"] = 1000
 
 
 class NoMSException(Exception):
@@ -119,35 +119,6 @@ def exp_protocol(
 
         df_len = D.test_prot.total()
         test_shift = get_shift(np.array([Ui.prevalence() for Ui in D.test_prot()]), D.L_prevalence).tolist()
-
-        # df_len = len(true_accs[acc_name])
-        # t_train, t_test_ave = 0, 0
-        # method_df = gen_method_df(
-        #     df_len,
-        #     uids=np.arange(df_len).tolist(),
-        #     shifts=test_shift,
-        #     true_accs=true_accs[acc_name],
-        #     estim_accs=[None] * df_len,
-        #     acc_err=[None] * df_len,
-        #     classifier=clsf.name,
-        #     classifier_class=clsf.class_name,
-        #     default_c=[clsf.default] * df_len,
-        #     ms_ignore=[True] * df_len,
-        #     method=method_name,
-        #     dataset=dataset_name,
-        #     acc_name=acc_name,
-        #     train_prev=[L_prev] * df_len,
-        #     val_prev=[val_prev] * df_len,
-        #     t_train=t_train,
-        #     t_test_ave=t_test_ave,
-        # )
-        #
-        # results.append(
-        #     EXP.SUCCESS(
-        #         clsf, dataset_name, acc_name, method_name, df=method_df, t_train=t_train, t_test_ave=t_test_ave
-        #     )
-        # )
-        # continue
 
         try:
             if clsf.ms_ignore:
