@@ -3,8 +3,9 @@ from argparse import ArgumentParser
 from typing import Literal
 
 import matplotlib.pyplot as plt
+import numpy as np
 import seaborn as sns
-from cap.plot.utils import get_binned_values, save_figure
+from cap.plot.utils import save_figure
 
 import env
 from config import get_acc_names, get_all_dataset_names
@@ -32,6 +33,18 @@ dataset_map = {
     "page_block": "page-block",
     "image_seg": "image-seg",
 }
+
+
+def get_binned_values(df, val_name, n_bins):
+    # sh_min, sh_max = np.min(df.loc[:, "shifts"]), np.max(df.loc[:, "shifts"])
+    val_min, val_max = 0, 1
+    bins = np.linspace(val_min, val_max, n_bins + 1)
+    binwidth = (val_max - val_min) / n_bins
+    vals_bin_idx = np.digitize(df.loc[:, val_name], bins, right=True)
+    vals_bin_idx = np.where(vals_bin_idx == 0, 1, vals_bin_idx) - 1
+    bins = bins[1:] - binwidth / 2
+    # bins = np.hstack([bins, [val_max]])
+    return bins[vals_bin_idx]
 
 
 def get_palette():
@@ -87,7 +100,7 @@ def plots(experiment: Literal["transd", "hoptim"]):
                 .filter_column_values("method", "isin", methods)
                 .select_columns(["method", "dataset", "true_accs", "shifts"])
             )
-            print(f"{dataset} loaded")
+            print(f"[{acc}] {dataset} loaded")
 
         res = Results.concat(res, axis=0)
         res = (
@@ -114,6 +127,7 @@ def plots(experiment: Literal["transd", "hoptim"]):
             palette=get_palette(),
         )
 
+        # add oracle line
         oracle_label = method_map.get("oracle", "oracle")
         oracle_df = (
             res.filter_column_values("method", "eq", "Oracle")
@@ -138,6 +152,33 @@ def plots(experiment: Literal["transd", "hoptim"]):
         labels = [labels[oracle_index]] + labels[:oracle_index] + labels[oracle_index + 1 :]
         plt.legend(handles=handles, labels=labels)
 
+        # add bin density bars to the background
+        _bin_arr = res.filter_column_values("method", "ne", "Oracle").df["shift_bins"].to_numpy()
+        bin_vals, bin_counts = np.unique(_bin_arr, return_counts=True)
+        true_vals = (
+            res.select_columns(["method", "shifts", "true_accs"])
+            .df.groupby(["method", "shifts"])
+            .mean()["true_accs"]
+            .to_numpy()
+        )
+        v_min, v_max = 0.25, 1.0
+        bin_densities = v_min + bin_counts / bin_counts.max() * (v_max - v_min)
+        # v_max, v_min, d_max, d_min = true_vals.max(), true_vals.min(), bin_densities.max(), bin_densities.min()
+        # scaled_densities = v_min + (bin_densities - d_min) / (d_max - d_min) * (v_max - v_min)
+
+        # print(v_max, v_min, scaled_densities)
+        # print(list(zip(bin_vals, scaled_densities)))
+        plot.bar(
+            bin_vals,
+            bin_densities,
+            width=(bin_vals[1] - bin_vals[0]) * 0.95,
+            alpha=0.1,
+            color="blue",
+            label="density",
+        )
+
+        plot.set_ylim(v_min - 0.02, v_max + 0.02)
+
         # Set plot axis ratio
         plt.gca().set_aspect(0.6)
 
@@ -147,7 +188,7 @@ def plots(experiment: Literal["transd", "hoptim"]):
 
         sns.move_legend(plot, "center left", bbox_to_anchor=(1.05, 0.5), title=None, frameon=False)
 
-        save_figure(plot, plot_dir, f"shift_{experiment}")
+        save_figure(plot, plot_dir, f"{acc}_shift_{experiment}")
 
 
 if __name__ == "__main__":

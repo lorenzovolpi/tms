@@ -25,11 +25,6 @@ import env
 from svmlight import SVMlight
 from util import sort_datasets_by_size, split_validation
 
-_toggle = {
-    "vanilla": True,
-    "f1": False,
-}
-
 
 @dataclass
 class DatasetBundle:
