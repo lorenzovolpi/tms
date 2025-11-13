@@ -6,7 +6,7 @@ from typing import Iterable
 import numpy as np
 import quapy as qp
 from cap.data.datasets import fetch_UCIBinaryDataset, fetch_UCIMulticlassDataset
-from cap.error import f1, f1_macro, smooth, vanilla_acc
+from cap.error import f1, f1_macro, kappa_acc, smooth, vanilla_acc
 from cap.models.cont_table import LEAP, O_LEAP, NaiveCAP
 from cap.models.utils import OracleQuantifier
 from cap.utils.commons import contingency_table
@@ -223,6 +223,7 @@ def gen_acc_measure():
     multiclass = env.PROBLEM == "multiclass"
     yield "vanilla_accuracy", vanilla_acc
     yield ("macro-F1", smooth(f1_macro)) if multiclass else ("F1", smooth(f1))
+    yield "Kappa", kappa_acc(qp.environ["SAMPLE_SIZE"])
 
 
 def gen_CAP_cont_table(h, acc_fn):
