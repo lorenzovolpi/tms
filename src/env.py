@@ -1,6 +1,7 @@
 import json
 import os
 import subprocess as sb
+from typing import Literal
 
 import cap
 import quapy as qp
@@ -18,5 +19,4 @@ root_dir = os.path.join(cap.env["OUT_DIR"], PROJECT)
 NUM_TEST = 1000
 qp.environ["_R_SEED"] = 0
 
-_valid_problems = ["binary", "multiclass"]
-PROBLEM = "multiclass"
+PROBLEM: Literal["binary", "multiclass"] = "binary"
