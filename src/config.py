@@ -6,7 +6,7 @@ from typing import Iterable
 import numpy as np
 import quapy as qp
 from cap.data.datasets import fetch_UCIBinaryDataset, fetch_UCIMulticlassDataset
-from cap.error import K_bin, K_macro, f1, f1_macro, smooth, vanilla_acc
+from cap.error import f1, f1_macro, k_bin, k_macro, smooth, vanilla_acc
 from cap.models.cont_table import LEAP, O_LEAP, NaiveCAP
 from cap.models.utils import OracleQuantifier
 from cap.utils.commons import contingency_table
@@ -222,20 +222,18 @@ def gen_datasets(
 def gen_acc_measure():
     multiclass = env.PROBLEM == "multiclass"
     yield "vanilla_accuracy", vanilla_acc
-    yield ("macro-F1", smooth(f1_macro)) if multiclass else ("F1", smooth(f1))
-    yield ("macro-K", K_macro) if multiclass else ("K", K_bin)
+    yield "macro-F1", (smooth(f1_macro) if multiclass else smooth(f1))
+    yield "macro-K", (k_macro if multiclass else k_bin)
 
 
 def gen_CAP_cont_table(h, acc_fn):
     yield "Naive", NaiveCAP(acc_fn)
-    # yield "LEAP(KDEy)", LEAP(acc_fn, kdey(), reuse_h=h, log_true_solve=True)
     yield "O-LEAP(KDEy)", O_LEAP(acc_fn, kdey())
 
 
 def gen_methods_with_oracle(h, acc_fn, D: DatasetBundle):
     oracle_q = OracleQuantifier([ui for ui in D.test_prot()])
     yield "LEAP(oracle)", LEAP(acc_fn, oracle_q, reuse_h=h, log_true_solve=True)
-    # yield "O-LEAP(oracle)", OCE(acc_fn, oracle_q, reuse_h=h, optim_method="SLSQP")
 
 
 def gen_CAP_methods(h, D, with_oracle=False):
