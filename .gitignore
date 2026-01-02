@@ -20,6 +20,7 @@ svm_light
 *.json
 
 output
+output_*
 tests
 old_src
 # src/hoptim.py
