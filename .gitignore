@@ -21,7 +21,7 @@ svm_light
 
 output
 output_*
-tests
+# tests
 old_src
 # src/hoptim.py
 
