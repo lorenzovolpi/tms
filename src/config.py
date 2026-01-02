@@ -222,8 +222,8 @@ def gen_datasets(
 def gen_acc_measure():
     multiclass = env.PROBLEM == "multiclass"
     yield "vanilla_accuracy", vanilla_acc
-    yield ("macro-F1", smooth(f1_macro)) if multiclass else ("F1", smooth(f1))
-    yield ("macro-K", K_macro) if multiclass else ("K", K_bin)
+    yield "macro-F1", (smooth(f1_macro) if multiclass else smooth(f1))
+    yield "macro-K", (K_macro if multiclass else K_bin)
 
 
 def gen_CAP_cont_table(h, acc_fn):
