@@ -1,5 +1,4 @@
 from abc import ABC
 
 
-class ModelSelection(ABC):
-    pass
+class ModelSelection(ABC): ...
