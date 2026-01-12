@@ -6,6 +6,7 @@ from time import time
 
 import cap
 import numpy as np
+import pandas as pd
 import quapy as qp
 from cap.data.datasets import fetch_UCIBinaryDataset, fetch_UCIMulticlassDataset
 from cap.models.base import ClassifierAccuracyPrediction
@@ -143,3 +144,8 @@ def sort_datasets_by_size(dataset_names: list[str], descending=True):
     datasets = [(d, get_dataset_size(d)) for d in dataset_names]
     datasets.sort(key=(lambda d: d[1]), reverse=descending)
     return [d for (d, _) in datasets]
+
+
+def gen_method_df(df_len, **data):
+    data = data | {k: [v] * df_len for k, v in data.items() if not isinstance(v, list)}
+    return pd.DataFrame.from_dict(data, orient="columns")

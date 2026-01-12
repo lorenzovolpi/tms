@@ -26,6 +26,7 @@ from env import PROJECT
 from util import (
     all_exist_pre_check,
     fit_or_switch,
+    gen_method_df,
     get_ct_predictions,
     get_logger,
     get_plain_prev,
@@ -48,11 +49,6 @@ class NoMSException(Exception):
 def get_extra_from_method(df, method):
     if isinstance(method, LEAP):
         df["true_solve"] = method._true_solve_log[-1]
-
-
-def gen_method_df(df_len, **data):
-    data = data | {k: [v] * df_len for k, v in data.items() if not isinstance(v, list)}
-    return pd.DataFrame.from_dict(data, orient="columns")
 
 
 @dataclass
@@ -103,18 +99,18 @@ def exp_protocol(
         np.ndarray,
     ],
 ) -> list[EXP]:
-    clsf, dataset_name, D, true_accs, method_name, method, val, val_posteriors = args
+    clsf, D, method_name, method, val, val_posteriors = args
     results = []
 
     L_prev = get_plain_prev(D.L_prevalence)
     val_prev = get_plain_prev(val.prevalence())
     t_train = None
     for acc_name, acc_fn in gen_acc_measure():
-        if is_excluded(clsf.name, dataset_name, method_name, acc_name):
+        if is_excluded(clsf.name, D.dataset_name, method_name, acc_name):
             continue
-        path = local_path(dataset_name, clsf.file_name, method_name, acc_name, experiment=EXPERIMENT)
+        path = local_path(D.dataset_name, clsf.file_name, method_name, acc_name, experiment=EXPERIMENT)
         if os.path.exists(path):
-            results.append(EXP.EXISTS(clsf, dataset_name, acc_name, method_name))
+            results.append(EXP.EXISTS(clsf, D.dataset_name, acc_name, method_name))
             continue
 
         df_len = D.test_prot.total()
@@ -128,13 +124,13 @@ def exp_protocol(
             t_train = t_train if _t_train is None else _t_train
 
             estim_accs, _, t_test_ave = get_ct_predictions(method, D.test_prot, D.test_prot_posteriors)
-            ae = cap.error.ae(np.array(true_accs[acc_name]), np.array(estim_accs)).tolist()
+            ae = cap.error.ae(np.array(D.true_accs[acc_name]), np.array(estim_accs)).tolist()
         except NoMSException:
             estim_accs = [None] * df_len
             ae = [None] * df_len
         except Exception as e:
             print_exception(e)
-            results.append(EXP.ERROR(e, clsf, dataset_name, acc_name, method_name))
+            results.append(EXP.ERROR(e, clsf, D.dataset_name, acc_name, method_name))
             continue
 
         # df_len = len(estim_accs)
@@ -142,7 +138,7 @@ def exp_protocol(
             df_len,
             uids=np.arange(df_len).tolist(),
             shifts=test_shift,
-            true_accs=true_accs[acc_name],
+            true_accs=D.true_accs[acc_name],
             estim_accs=estim_accs,
             acc_err=ae,
             classifier=clsf.name,
@@ -150,7 +146,7 @@ def exp_protocol(
             default_c=[clsf.default] * df_len,
             ms_ignore=[clsf.ms_ignore] * df_len,
             method=method_name,
-            dataset=dataset_name,
+            dataset=D.dataset_name,
             acc_name=acc_name,
             train_prev=[L_prev] * df_len,
             val_prev=[val_prev] * df_len,
@@ -161,7 +157,7 @@ def exp_protocol(
         results.append(
             EXP.SUCCESS(
                 clsf,
-                dataset_name,
+                D.dataset_name,
                 acc_name,
                 method_name,
                 df=method_df,
@@ -185,20 +181,16 @@ def train_cls(args):
         acc_names=get_acc_names(),
         experiment=EXPERIMENT,
     ):
-        return (orig_clsf, dataset_name, None, None)
+        return (orig_clsf, DatasetBundle.mock(dataset_name=dataset_name))
     else:
         # clone model from the original one
         clsf = orig_clsf.clone()
         # fit model
         clsf.h.fit(*L.Xy)
         # create dataset bundle
-        D = DatasetBundle(L.prevalence(), V, U).create_bundle(clsf.h)
-        # compute true accs for h on dataset
-        true_accs = {}
-        for acc_name, acc_fn in gen_acc_measure():
-            true_accs[acc_name] = [true_acc(clsf.h, acc_fn, Ui) for Ui in D.test_prot()]
+        D = DatasetBundle(dataset_name, L.prevalence(), V, U).create_bundle(clsf.h)
         # store h-dataset combination
-        return (clsf, dataset_name, D, true_accs)
+        return (clsf, D)
 
 
 def experiments():
@@ -215,22 +207,20 @@ def experiments():
         return_as="generator_unordered",
     )
     cls_dataset = []
-    for clsf, dataset_name, D, true_accs in cls_dataset_gen:
-        if D is None:
-            log.info(f"All results for {clsf.name} over {dataset_name} exist, skipping")
+    for clsf, D in cls_dataset_gen:
+        if D.empty:
+            log.info(f"All results for {clsf.name} over {D.dataset_name} exist, skipping")
         else:
-            log.info(f"Trained {clsf.name} over {dataset_name}")
-            cls_dataset.append((clsf, dataset_name, D, true_accs))
+            log.info(f"Trained {clsf.name} over {D.dataset_name}")
+            cls_dataset.append((clsf, D))
 
     exp_prot_args_list = []
-    for clsf, dataset_name, D, true_accs in cls_dataset:
+    for clsf, D in cls_dataset:
         for method_name, method, val, val_posteriors in gen_CAP_methods(clsf.h, D):
             exp_prot_args_list.append(
                 (
                     clsf,
-                    dataset_name,
                     D,
-                    true_accs,
                     method_name,
                     method,
                     val,

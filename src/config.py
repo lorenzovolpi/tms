@@ -9,7 +9,7 @@ from cap.data.datasets import fetch_UCIBinaryDataset, fetch_UCIMulticlassDataset
 from cap.error import f1, f1_macro, k_bin, k_macro, smooth, vanilla_acc
 from cap.models.cont_table import LEAP, O_LEAP, NaiveCAP
 from cap.models.utils import OracleQuantifier
-from cap.utils.commons import contingency_table
+from cap.utils.commons import contingency_table, true_acc
 from quapy.data import LabelledCollection
 from quapy.data.datasets import UCI_BINARY_DATASETS, UCI_MULTICLASS_DATASETS
 from quapy.method.aggregative import KDEyML
@@ -28,6 +28,7 @@ from util import sort_datasets_by_size, split_validation
 
 @dataclass
 class DatasetBundle:
+    dataset_name: str
     L_prevalence: np.ndarray
     V: LabelledCollection
     U: LabelledCollection
@@ -40,8 +41,11 @@ class DatasetBundle:
     test_prot_posteriors: np.ndarray = None
     test_prot_y_hat: np.ndarray = None
     test_prot_true_cts: np.ndarray = None
+    n_classes: int = -1
 
     def create_bundle(self, h: BaseEstimator):
+        self.n_classes = self.L_prevalence.shape[0]
+
         # generate test protocol
         self.test_prot = UPP(
             self.U,
@@ -69,11 +73,20 @@ class DatasetBundle:
             self.test_prot_y_hat.append(y_hat)
             self.test_prot_true_cts.append(contingency_table(sample.y, y_hat, sample.n_classes))
 
+        # compute true accs for h on dataset
+        self.true_accs = {}
+        for acc_name, acc_fn in gen_acc_measure():
+            self.true_accs[acc_name] = [true_acc(h, acc_fn, Ui) for Ui in self.test_prot()]
+
         return self
 
     @classmethod
-    def mock(cls):
-        return DatasetBundle(None, None, None, test_prot=lambda: [])
+    def mock(cls, dataset_name="mock"):
+        return DatasetBundle(dataset_name, None, None, None, test_prot=lambda: [])
+
+    @property
+    def empty(self):
+        return self.V is None or self.U is None
 
 
 class ClsVariant:
