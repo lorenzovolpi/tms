@@ -104,7 +104,6 @@ def exp_protocol(
 
     L_prev = get_plain_prev(D.L_prevalence)
     val_prev = get_plain_prev(val.prevalence())
-    t_train = None
     for acc_name, acc_fn in gen_acc_measure():
         if is_excluded(clsf.name, D.dataset_name, method_name, acc_name):
             continue
@@ -117,17 +116,7 @@ def exp_protocol(
         test_shift = get_shift(np.array([Ui.prevalence() for Ui in D.test_prot()]), D.L_prevalence).tolist()
 
         try:
-            if clsf.ms_ignore:
-                raise NoMSException()
-
-            method, _t_train = fit_or_switch(method, val, val_posteriors, acc_fn, t_train is not None)
-            t_train = t_train if _t_train is None else _t_train
-
-            estim_accs, _, t_test_ave = get_ct_predictions(method, D.test_prot, D.test_prot_posteriors)
-            ae = cap.error.ae(np.array(D.true_accs[acc_name]), np.array(estim_accs)).tolist()
-        except NoMSException:
-            estim_accs = [None] * df_len
-            ae = [None] * df_len
+            ms_res = method.fit(val, val_posteriors).rank()
         except Exception as e:
             print_exception(e)
             results.append(EXP.ERROR(e, clsf, D.dataset_name, acc_name, method_name))
@@ -139,8 +128,6 @@ def exp_protocol(
             uids=np.arange(df_len).tolist(),
             shifts=test_shift,
             true_accs=D.true_accs[acc_name],
-            estim_accs=estim_accs,
-            acc_err=ae,
             classifier=clsf.name,
             classifier_class=clsf.class_name,
             default_c=[clsf.default] * df_len,
@@ -150,8 +137,7 @@ def exp_protocol(
             acc_name=acc_name,
             train_prev=[L_prev] * df_len,
             val_prev=[val_prev] * df_len,
-            t_train=t_train,
-            t_test_ave=t_test_ave,
+            **ms_res,
         )
 
         results.append(
