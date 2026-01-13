@@ -239,6 +239,7 @@ def gen_acc_measure():
     yield "macro-K", (k_macro if multiclass else k_bin)
 
 
+# TODO: change method generation
 def gen_CAP_cont_table(h, acc_fn):
     yield "Naive", NaiveCAP(acc_fn)
     yield "O-LEAP(KDEy)", O_LEAP(acc_fn, kdey())
