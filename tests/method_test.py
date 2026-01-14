@@ -58,5 +58,6 @@ if __name__ == "__main__":
 
     results = [exp_protocol(arg) for arg in exp_prot_args_list]
 
-    for r in results:
-        print(r.df)
+    for res in results:
+        for r in res:
+            print(r.df)
