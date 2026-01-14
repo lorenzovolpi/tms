@@ -16,18 +16,17 @@ from config import (
     ClsVariant,
     DatasetBundle,
     gen_acc_measure,
-    gen_CAP_methods,
     gen_classifiers,
     gen_datasets,
+    gen_methods,
     get_acc_names,
-    get_CAP_method_names,
+    get_method_names,
 )
 from env import PROJECT
+from method.base import ModelSelection
 from util import (
     all_exist_pre_check,
-    fit_or_switch,
     gen_method_df,
-    get_ct_predictions,
     get_logger,
     get_plain_prev,
     is_excluded,
@@ -59,8 +58,7 @@ class EXP:
     acc_name: str
     method_name: str
     df: pd.DataFrame = None
-    t_train: float = None
-    t_test_ave: float = None
+    t_ave: float = None
     err: Exception = None
 
     @classmethod
@@ -90,11 +88,9 @@ class EXP:
 def exp_protocol(
     args: tuple[
         ClsVariant,
-        str,
         DatasetBundle,
-        np.ndarray,
         str,
-        BaseEstimator,
+        ModelSelection,
         LabelledCollection,
         np.ndarray,
     ],
@@ -116,7 +112,7 @@ def exp_protocol(
         test_shift = get_shift(np.array([Ui.prevalence() for Ui in D.test_prot()]), D.L_prevalence).tolist()
 
         try:
-            ms_res = method.fit(val, val_posteriors).rank()
+            ms_res = method.rank(acc_fn, val, val_posteriors)
         except Exception as e:
             print_exception(e)
             results.append(EXP.ERROR(e, clsf, D.dataset_name, acc_name, method_name))
@@ -147,8 +143,7 @@ def exp_protocol(
                 acc_name,
                 method_name,
                 df=method_df,
-                t_train=t_train,
-                t_test_ave=t_test_ave,
+                t_ave=ms_res.get("t_ave", None),
             )
         )
 
@@ -163,7 +158,7 @@ def train_cls(args):
     if all_exist_pre_check(
         dataset_name=dataset_name,
         cls_name=orig_clsf.file_name,
-        method_names=get_CAP_method_names(),
+        method_names=get_method_names(),
         acc_names=get_acc_names(),
         experiment=EXPERIMENT,
     ):
@@ -173,8 +168,9 @@ def train_cls(args):
         clsf = orig_clsf.clone()
         # fit model
         clsf.h.fit(*L.Xy)
+        # compute true accs
         # create dataset bundle
-        D = DatasetBundle(dataset_name, L.prevalence(), V, U).create_bundle(clsf.h)
+        D = DatasetBundle(dataset_name, L.prevalence(), V, U).create_bundle(clsf.h, list(gen_acc_measure()))
         # store h-dataset combination
         return (clsf, D)
 
@@ -202,7 +198,7 @@ def experiments():
 
     exp_prot_args_list = []
     for clsf, D in cls_dataset:
-        for method_name, method, val, val_posteriors in gen_CAP_methods(clsf.h, D):
+        for method_name, method, val, val_posteriors in gen_methods(clsf, D):
             exp_prot_args_list.append(
                 (
                     clsf,
