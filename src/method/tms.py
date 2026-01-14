@@ -8,14 +8,14 @@ from quapy.data import LabelledCollection
 from quapy.method.aggregative import KDEyML
 from sklearn.neural_network import MLPClassifier
 
-from config import ClsVariant, DatasetBundle
+from data import ClsVariant, DatasetBundle
 from method.base import ModelSelection
 
 
 class TMS(ModelSelection): ...
 
 
-class TMS_LEAP(TMS):
+class LEAP(TMS):
     @override
     def rank(self, acc_fn, val: LabelledCollection, val_posteriors: np.ndarray):
         if self.clsf.ms_ignore:
@@ -34,7 +34,7 @@ class TMS_LEAP(TMS):
         )
 
 
-class TMS_RQBS(TMS):
+class RQBS(TMS):
     """
     Reverse Quantification-Based Sampling
     """

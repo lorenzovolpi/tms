@@ -1,128 +1,23 @@
-import hashlib
 import itertools as IT
-from dataclasses import dataclass
 from typing import Iterable
 
 import numpy as np
-import quapy as qp
 from cap.data.datasets import fetch_UCIBinaryDataset, fetch_UCIMulticlassDataset
 from cap.error import f1, f1_macro, k_bin, k_macro, smooth, vanilla_acc
-from cap.models.cont_table import LEAP, O_LEAP, NaiveCAP
-from cap.models.utils import OracleQuantifier
-from cap.utils.commons import contingency_table, true_acc
 from quapy.data import LabelledCollection
 from quapy.data.datasets import UCI_BINARY_DATASETS, UCI_MULTICLASS_DATASETS
 from quapy.method.aggregative import KDEyML
-from quapy.protocol import UPP, AbstractStochasticSeededProtocol
-from sklearn import clone
-from sklearn.base import BaseEstimator
 from sklearn.linear_model import LogisticRegression
 from sklearn.neighbors import KNeighborsClassifier as KNN
 from sklearn.neural_network import MLPClassifier as MLP
 from sklearn.svm import SVC
 
 import env
+from data import ClsVariant, DatasetBundle
+from method.ims import IMS
+from method.tms import LEAP, RQBS
 from svmlight import SVMlight
 from util import sort_datasets_by_size, split_validation
-
-
-@dataclass
-class DatasetBundle:
-    dataset_name: str
-    L_prevalence: np.ndarray
-    V: LabelledCollection
-    U: LabelledCollection
-    V1: LabelledCollection = None
-    V2_prot: AbstractStochasticSeededProtocol = None
-    test_prot: AbstractStochasticSeededProtocol = None
-    V_posteriors: np.ndarray = None
-    V1_posteriors: np.ndarray = None
-    V2_prot_posteriors: np.ndarray = None
-    test_prot_posteriors: np.ndarray = None
-    test_prot_y_hat: np.ndarray = None
-    test_prot_true_cts: np.ndarray = None
-    n_classes: int = -1
-
-    def create_bundle(self, h: BaseEstimator):
-        self.n_classes = self.L_prevalence.shape[0]
-
-        # generate test protocol
-        self.test_prot = UPP(
-            self.U,
-            repeats=env.NUM_TEST,
-            return_type="labelled_collection",
-            random_state=qp.environ["_R_SEED"],
-        )
-
-        # split validation set
-        self.V1, self.V2_prot = split_validation(self.V)
-
-        # precomumpute model posteriors for validation sets
-        self.V_posteriors = h.predict_proba(self.V.X)
-        self.V1_posteriors = h.predict_proba(self.V1.X)
-        self.V2_prot_posteriors = []
-        for sample in self.V2_prot():
-            self.V2_prot_posteriors.append(h.predict_proba(sample.X))
-
-        # precomumpute model posteriors for test samples
-        self.test_prot_posteriors, self.test_prot_y_hat, self.test_prot_true_cts = [], [], []
-        for sample in self.test_prot():
-            P = h.predict_proba(sample.X)
-            self.test_prot_posteriors.append(P)
-            y_hat = np.argmax(P, axis=-1)
-            self.test_prot_y_hat.append(y_hat)
-            self.test_prot_true_cts.append(contingency_table(sample.y, y_hat, sample.n_classes))
-
-        # compute true accs for h on dataset
-        self.true_accs = {}
-        for acc_name, acc_fn in gen_acc_measure():
-            self.true_accs[acc_name] = [true_acc(h, acc_fn, Ui) for Ui in self.test_prot()]
-
-        return self
-
-    @classmethod
-    def mock(cls, dataset_name="mock"):
-        return DatasetBundle(dataset_name, None, None, None, test_prot=lambda: [])
-
-    @property
-    def empty(self):
-        return self.V is None or self.U is None
-
-
-class ClsVariant:
-    def __init__(self, class_name: str, h: BaseEstimator, params: dict, ms_ignore=False):
-        self.class_name: str = class_name
-        self.base = h
-        self.params: dict = params
-        self.default: bool = self._is_default(h, params)
-        self.h: BaseEstimator = self._get_cls(h, params)
-        self.ms_ignore: bool = ms_ignore
-
-        self._set_names()
-
-    def _is_default(self, base, params):
-        _par_names = list(params.keys())
-        return params == {k: v for k, v in base.get_params().items() if k in _par_names}
-
-    def _get_cls(self, h, params):
-        _h = clone(h)
-        _h.set_params(**params)
-        return _h
-
-    def _set_names(self):
-        if self.default:
-            self.file_name = self.name = self.class_name
-            return
-
-        def hash_params(params_str):
-            return hashlib.sha256(params_str.encode()).hexdigest()[:64]
-
-        params_str = "[" + ";".join([f"{k}={v}" for k, v in self.params.items()]) + "]"
-        self.name: str = f"{self.class_name}_{params_str}"
-        self.file_name: str = f"{self.class_name}_{hash_params(params_str)}"
-
-    def clone(self):
-        return ClsVariant(self.class_name, self.base, self.params, self.ms_ignore)
 
 
 def kdey():
@@ -239,24 +134,10 @@ def gen_acc_measure():
     yield "macro-K", (k_macro if multiclass else k_bin)
 
 
-# TODO: change method generation
-def gen_CAP_cont_table(h, acc_fn):
-    yield "Naive", NaiveCAP(acc_fn)
-    yield "O-LEAP(KDEy)", O_LEAP(acc_fn, kdey())
-
-
-def gen_methods_with_oracle(h, acc_fn, D: DatasetBundle):
-    oracle_q = OracleQuantifier([ui for ui in D.test_prot()])
-    yield "LEAP(oracle)", LEAP(acc_fn, oracle_q, reuse_h=h, log_true_solve=True)
-
-
-def gen_CAP_methods(h, D, with_oracle=False):
-    _, acc_fn = next(gen_acc_measure())
-    for name, method in gen_CAP_cont_table(h, acc_fn):
-        yield name, method, D.V, D.V_posteriors
-    if with_oracle:
-        for name, method in gen_methods_with_oracle(h, acc_fn, D):
-            yield name, method, D.V, D.V_posteriors
+def gen_methods(clsf: ClsVariant, D: DatasetBundle):
+    yield "IMS", IMS(clsf, D), D.V, D.V_posteriors
+    yield "TMS_LEAP", LEAP(clsf, D), D.V, D.V_posteriors
+    yield "TMS_RQBS", RQBS(clsf, D), D.V, D.V_posteriors
 
 
 def get_classifier_names():
@@ -288,14 +169,10 @@ def get_acc_names():
     return [acc_name for acc_name, _ in gen_acc_measure()]
 
 
-def get_CAP_method_names(with_oracle=False):
-    mock_h = LogisticRegression()
-    _, mock_acc_fn = next(gen_acc_measure())
+def get_method_names():
+    mock_clsf = ClsVariant.mock()
     mock_D = DatasetBundle.mock()
 
-    names = [m for m, _ in gen_CAP_cont_table(mock_h, mock_acc_fn)]
-
-    if with_oracle:
-        names += [m for m, _ in gen_methods_with_oracle(mock_h, mock_acc_fn, mock_D)]
+    names = [m for m, _, _, _ in gen_methods(mock_clsf, mock_D)]
 
     return names

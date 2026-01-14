@@ -3,7 +3,7 @@ from abc import ABC, abstractmethod
 import numpy as np
 from quapy.data import LabelledCollection
 
-from config import ClsVariant, DatasetBundle
+from data import ClsVariant, DatasetBundle
 
 
 class ModelSelection(ABC):
