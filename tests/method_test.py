@@ -1,12 +1,14 @@
 import itertools as IT
 
 import numpy as np
+import pandas as pd
 from cap.data.datasets import fetch_UCIBinaryDataset
 from sklearn.linear_model import LogisticRegression
 
 from config import ClsVariant, DatasetBundle
 from main import exp_protocol, train_cls
 from method.tms import LEAP
+from results import Results
 
 
 def gen_classifiers(n_classes):
@@ -58,6 +60,12 @@ if __name__ == "__main__":
 
     results = [exp_protocol(arg) for arg in exp_prot_args_list]
 
-    for res in results:
-        for r in res:
-            print(r.df)
+    dfs = [r.df for res in results for r in res]
+    res = Results(pd.concat(dfs, axis=0)).model_selection()
+    res = Results.concat(
+        [
+            res.default_classifier_ms(),
+            res.method_ms("TMS_LEAP"),
+            res.oracle_ms(),
+        ]
+    )
