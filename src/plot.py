@@ -96,7 +96,8 @@ def plots(experiment: Literal["transd", "hoptim"]):
             res.append(
                 Results.load(base_dir=base_dir, acc_name=acc, dataset=dataset, set_problem=False)
                 # .split_by_shift(prevs=0.5)
-                .model_selection(oracle=True, only_default=True, ea_label=ea_label)
+                # TODO: split model_selection in submethods
+                .model_selection(oracle=True, rank_label=ea_label)
                 .filter_column_values("method", "isin", methods)
                 .select_columns(["method", "dataset", "true_accs", "shifts"])
             )

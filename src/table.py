@@ -71,7 +71,8 @@ def gen_tables(experiment: Literal["transd", "hoptim"]):
             res = (
                 Results.load(base_dir=base_dir, acc_name=acc, dataset=dataset, set_problem=False)
                 # .split_by_shift(prevs=0.5)
-                .model_selection(oracle=False, only_default=True, ea_label=ea_label)
+                # TODO: split model_selection in submethods
+                .model_selection(oracle=False, rank_label=rank_label)
                 .map_column_values("method", method_map)
                 .map_column_values("dataset", dataset_map)
                 .apply_to_column("dataset", decorate_dataset)
