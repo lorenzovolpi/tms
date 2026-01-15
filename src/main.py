@@ -8,9 +8,8 @@ import numpy as np
 import pandas as pd
 import quapy as qp
 from cap.models.cont_table import LEAP
-from cap.utils.commons import get_shift, parallel, true_acc
+from cap.utils.commons import get_shift, parallel
 from quapy.data import LabelledCollection
-from sklearn.base import BaseEstimator
 
 from config import (
     ClsVariant,
