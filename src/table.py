@@ -7,6 +7,7 @@ import pandas as pd
 from pandatex import Format, Table
 
 import env
+import main
 from config import get_acc_names, get_all_dataset_names
 from results import Results
 from util import decorate_dataset
@@ -33,12 +34,9 @@ dataset_map = {
 }
 
 
-def gen_tables(experiment: Literal["transd", "hoptim"]):
-    if experiment == "transd":
-        ea_label = "estim_accs"
-    else:
-        print(f"Invalid experiment '{experiment}'; aborting.")
-        return
+def gen_tables():
+    experiment = main.EXPERIMENT
+    rank_label = "ranking_vals"
 
     base_dir = os.path.join(env.root_dir, experiment)
 
@@ -154,20 +152,12 @@ def gen_pdf(experiment: Literal["transd", "hoptim"]):
 
 if __name__ == "__main__":
     parser = ArgumentParser()
-    parser.add_argument(
-        "-e",
-        "--experiment",
-        action="store",
-        help="The type of experiment for which to generate tables",
-        choices=["transd"],
-        default="transd",
-    )
     parser.add_argument("-t", "--tables", action="store_true", help="Generate tables")
     parser.add_argument("-p", "--pdf", action="store_true", help="Generate PDF from tables")
     parser.add_argument("-a", "--all", action="store_true", help="Generate both tables and PDF")
     args = parser.parse_args()
 
     if args.tables:
-        gen_tables(args.experiment)
+        gen_tables()
     if args.pdf:
-        gen_pdf(args.experiment)
+        gen_pdf()
