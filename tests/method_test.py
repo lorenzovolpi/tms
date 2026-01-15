@@ -2,13 +2,18 @@ import itertools as IT
 
 import numpy as np
 import pandas as pd
-from cap.data.datasets import fetch_UCIBinaryDataset
+import quapy as qp
+from cap.data.datasets import fetch_UCIBinaryDataset, fetch_UCIMulticlassDataset
 from sklearn.linear_model import LogisticRegression
+from sklearn.neural_network import MLPClassifier
 
 from config import ClsVariant, DatasetBundle
 from main import exp_protocol, train_cls
-from method.tms import LEAP
+from method.ims import IMS
+from method.tms import LEAP, RQBS
 from results import Results
+
+qp.environ["SAMPLE_SIZE"] = 1000
 
 
 def gen_classifiers(n_classes):
@@ -20,7 +25,14 @@ def gen_classifiers(n_classes):
             {
                 "C": np.logspace(-1, 1, 3),
             },
-        )
+        ),
+        (
+            "MLP",
+            MLPClassifier(),
+            {
+                "alpha": np.around(np.logspace(-3, -1, 3), decimals=5),
+            },
+        ),
     ]
 
     for name, base, param_grid in cls_classes:
@@ -32,13 +44,18 @@ def gen_classifiers(n_classes):
 
 
 def gen_datasets():
-    uci_binary = ["spambase"]
+    uci_binary = ["spambase", "tictactoe"]
     for dn in uci_binary:
         yield dn, fetch_UCIBinaryDataset(dn)
+    uci_multi = ["molecular", "nursery"]
+    for dn in uci_multi:
+        yield dn, fetch_UCIMulticlassDataset(dn)
 
 
 def gen_methods(clsf: ClsVariant, D: DatasetBundle):
+    yield "IMS", IMS(clsf, D), D.V, D.V_posteriors
     yield "TMS_LEAP", LEAP(clsf, D), D.V, D.V_posteriors
+    yield "TMS_RQBS", RQBS(clsf, D), D.V, D.V_posteriors
 
 
 if __name__ == "__main__":
@@ -69,3 +86,6 @@ if __name__ == "__main__":
             res.oracle_ms(),
         ]
     )
+
+    pivot = pd.pivot_table(res.df, index=["dataset"], columns=["method"], values=["true_accs"])
+    print(pivot)
