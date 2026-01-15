@@ -17,7 +17,7 @@ from data import ClsVariant, DatasetBundle
 from method.ims import IMS
 from method.tms import LEAP, RQBS
 from svmlight import SVMlight
-from util import sort_datasets_by_size, split_validation
+from util import sort_datasets_by_size
 
 
 def kdey():
@@ -130,8 +130,8 @@ def gen_datasets(
 def gen_acc_measure():
     multiclass = env.PROBLEM == "multiclass"
     yield "vanilla_accuracy", vanilla_acc
-    yield "macro-F1", (smooth(f1_macro) if multiclass else smooth(f1))
-    yield "macro-K", (k_macro if multiclass else k_bin)
+    # yield "macro-F1", (smooth(f1_macro) if multiclass else smooth(f1))
+    # yield "macro-K", (k_macro if multiclass else k_bin)
 
 
 def gen_methods(clsf: ClsVariant, D: DatasetBundle):
