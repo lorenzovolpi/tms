@@ -46,11 +46,11 @@ class RQBS(TMS):
         clsf: ClsVariant,
         D: DatasetBundle,
         n_vsamples=100,
-        sample_size=qp.environ["SAMPLE_SIZE"],
+        sample_size=None,
     ):
         super().__init__(clsf, D)
         self.n_vsamples = n_vsamples
-        self.sample_size = sample_size
+        self.sample_size = qp.environ["SAMPLE_SIZE"] if sample_size is None else sample_size
 
     @override
     def rank(self, acc_fn, val: LabelledCollection, val_posteriors: np.ndarray):
@@ -73,7 +73,7 @@ class RQBS(TMS):
             accs = []
             for idx in vidxs:
                 vali_yhat = val_posteriors[idx, :].argmax(axis=1)
-                vali_y = val[idx, :]
+                vali_y = val.y[idx]
                 accs.append(acc_fn(vali_yhat, vali_y))
             ranking_vals.append(np.median(accs))
         ranking_vals = np.array(ranking_vals)
