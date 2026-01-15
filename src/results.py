@@ -124,7 +124,7 @@ class Results(ABC):
             [Results(pd.concat(new_r)) for new_r in new_ress] if len(new_ress) > 1 else Results(pd.concat(new_ress[0]))
         )
 
-    def CAP_model_selection(self, method: str, classifier_class=None, ea_label="estim_accs") -> "Results":
+    def method_ms(self, method: str, classifier_class=None, rank_label="ranking_vals") -> "Results":
         # methods = get_CAP_method_names()
         accs = get_acc_names()
 
@@ -147,7 +147,7 @@ class Results(ABC):
             # index data by dataset, sample_id (uids), and classifier
             mdf = mdf.set_index(["dataset", "uids", "classifier"])
             # group data by sample_id and dataset and take the index of the maximum in the self.estim_acc_label column
-            best_idx = mdf.groupby(["uids", "dataset"])[ea_label].idxmax()
+            best_idx = mdf.groupby(["uids", "dataset"])[rank_label].idxmax()
             # use the index to filter the data, resetting the index
             mdf = mdf.loc[best_idx, :].reset_index(drop=False)
             if classifier_class is not None:
@@ -156,7 +156,7 @@ class Results(ABC):
 
         return Results(pd.concat(dfs, axis=0))
 
-    def oracle_model_selection(self) -> "Results":
+    def oracle_ms(self) -> "Results":
         accs = get_acc_names()
 
         dfs = []
@@ -169,7 +169,7 @@ class Results(ABC):
 
         return Results(pd.concat(dfs, axis=0))
 
-    def no_model_selection(self, only_default=False) -> "Results":
+    def default_classifier_ms(self) -> "Results":
         accs = get_acc_names()
         classifiers = get_classifier_names()
 
@@ -184,29 +184,29 @@ class Results(ABC):
                 .first()
                 .reset_index(drop=False)
             )
-            if only_default and not np.all(ndf["default_c"].to_numpy()):
+            if not np.all(ndf["default_c"].to_numpy()):
                 continue
             ndf["method"] = ndf["classifier"]
             dfs.append(ndf)
 
         return Results(pd.concat(dfs, axis=0))
 
-    def model_selection(self, oracle=False, only_default=False, ea_label="estim_accs") -> "Results":
+    def model_selection(self, oracle=False, rank_label="ranking_vals") -> "Results":
         classifier_classes = get_classifier_class_names()
-        spread_methods = ["Naive"]
+        spread_methods = ["IMS"]
         methods = get_CAP_method_names()
 
         dfs = (
-            [self.no_model_selection(only_default=only_default)]
+            [self.default_classifier_ms()]
             + [
-                self.CAP_model_selection(method=m, classifier_class=cls_class, ea_label=ea_label)
+                self.method_ms(method=m, classifier_class=cls_class, rank_label=rank_label)
                 for m, cls_class in IT.product(spread_methods, classifier_classes)
             ]
-            + [self.CAP_model_selection(method=m, ea_label=ea_label) for m in methods]
+            + [self.method_ms(method=m, rank_label=rank_label) for m in methods]
         )
 
         if oracle:
-            dfs.append(self.oracle_model_selection())
+            dfs.append(self.oracle_ms())
 
         return Results.concat(dfs, axis=0)
 
