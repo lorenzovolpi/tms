@@ -12,9 +12,9 @@ import pandas as pd
 import env
 from config import (
     get_acc_names,
-    get_CAP_method_names,
     get_classifier_class_names,
     get_classifier_names,
+    get_method_names,
 )
 
 
@@ -194,7 +194,7 @@ class Results(ABC):
     def model_selection(self, oracle=False, rank_label="ranking_vals") -> "Results":
         classifier_classes = get_classifier_class_names()
         spread_methods = ["IMS"]
-        methods = get_CAP_method_names()
+        methods = get_method_names()
 
         dfs = (
             [self.default_classifier_ms()]
