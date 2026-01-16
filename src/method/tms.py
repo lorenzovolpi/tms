@@ -63,6 +63,8 @@ class RQBS(TMS):
         if sidx is None:
             q = KDEyML(MLPClassifier()).fit(val)
             q_hats = [q.quantify(Ui.X) for Ui in self.D.test_prot()]
+            # normalize q_hats
+            q_hats = [q_hat / q_hat.sum() for q_hat in q_hats]
             sidx = np.asarray(
                 [[val.sampling_index(self.sample_size, *q_hat) for _ in range(self.n_vsamples)] for q_hat in q_hats]
             )
