@@ -50,13 +50,13 @@ def gen_classifiers(n_classes):
 def gen_datasets():
     uci_binary = [
         "spambase",
-        # "tictactoe",
+        "tictactoe",
     ]
     for dn in uci_binary:
         yield dn, fetch_UCIBinaryDataset(dn)
     uci_multi = [
         "molecular",
-        # "nursery",
+        "nursery",
     ]
     for dn in uci_multi:
         yield dn, fetch_UCIMulticlassDataset(dn)
@@ -79,9 +79,7 @@ if __name__ == "__main__":
     os.makedirs(outdir, exist_ok=True)
     out_json = os.path.join(outdir, "results.json")
 
-    if os.path.exists(out_json):
-        res = Results(pd.read_json(out_json))
-    else:
+    if not os.path.exists(out_json):
         cls_train_args = []
         for dataset in gen_datasets():
             _, (L, _, _) = dataset
@@ -109,8 +107,10 @@ if __name__ == "__main__":
 
         dfs = [r.df for res in results for r in res]
         res = Results(pd.concat(dfs, axis=0))
+        res.df.index = range(len(res.df))
         res.df.to_json(out_json)
 
+    res = Results(pd.read_json(out_json))
     res = Results.concat(
         [
             res.oracle_ms(),
