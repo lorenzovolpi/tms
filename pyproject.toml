@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.12.8"
 dependencies = [
     "cap-ml @ git+https://github.com/lorenzovolpi/cap-ml.git",
+    "numpy<2.4.0",
     "pandatex @ git+https://github.com/lorenzovolpi/pandatex.git",
 ]
 
