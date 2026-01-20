@@ -4,6 +4,7 @@ from typing import override
 import numpy as np
 import quapy as qp
 from cap.models.cont_table import O_LEAP
+from cap.utils.commons import contingency_table
 from quapy.data import LabelledCollection
 from quapy.method.aggregative import KDEyML
 from sklearn.neural_network import MLPClassifier
@@ -76,7 +77,8 @@ class RQBS(TMS):
             for idx in vidxs:
                 vali_yhat = val_posteriors[idx, :].argmax(axis=1)
                 vali_y = val.y[idx]
-                accs.append(acc_fn(vali_yhat, vali_y))
+                vaili_ct = contingency_table(vali_y, vali_yhat, self.D.n_classes)
+                accs.append(acc_fn(vaili_ct))
             ranking_vals.append(np.median(accs))
         ranking_vals = np.array(ranking_vals)
 
