@@ -48,7 +48,10 @@ def run_deploy(args: Namespace):
 def run_log(args: Namespace):
     _workdir = host_info[args.host]["workdir"]
     _module = args.module if args.module else PROJECT
-    command = f"{args.host} tail -f -n +0 {_workdir}/output/{_module}.log | bat -P -l syslog"
+    if args.less:
+        command = f"{args.host} cat {_workdir}/output/{_module}.log | bat -l syslog"
+    else:
+        command = f"{args.host} tail -f -n +0 {_workdir}/output/{_module}.log | bat -P -l syslog"
 
     try:
         sb.run(command, shell=True)
@@ -118,6 +121,9 @@ if __name__ == "__main__":
     # log args
     #
     _parsers["log"].add_argument("-m", "--module", action="store", help="Module for which the log will be shown.")
+    _parsers["log"].add_argument(
+        "-l", "--less", action="store_true", help="Whether to show the output file in less mode."
+    )
 
     # out args
     #
