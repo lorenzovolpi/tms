@@ -21,6 +21,7 @@ from config import (
     get_acc_names,
     get_method_names,
 )
+from data import ClsfDataset
 from env import PROJECT
 from method.base import ModelSelection
 from util import (
@@ -33,7 +34,7 @@ from util import (
     timestamp,
 )
 
-EXPERIMENT = "transd"
+EXPERIMENT = "main"
 log = get_logger(id=f"{PROJECT}.{EXPERIMENT}")
 
 qp.environ["SAMPLE_SIZE"] = 1000
@@ -149,51 +150,60 @@ def exp_protocol(
     return results
 
 
-def train_cls(args):
-    orig_clsf, (dataset_name, (L, V, U)) = args
+def train_cls(cd: ClsfDataset):
     #
     # check if all results for current combination already exist
     # if so, skip the combination
     if all_exist_pre_check(
-        dataset_name=dataset_name,
-        cls_name=orig_clsf.file_name,
+        dataset_name=cd.D.dataset_name,
+        cls_name=cd.clsf.file_name,
         method_names=get_method_names(),
         acc_names=get_acc_names(),
         experiment=EXPERIMENT,
     ):
-        return (orig_clsf, DatasetBundle.mock(dataset_name=dataset_name))
+        return cd.already_done()
     else:
-        # clone model from the original one
-        clsf = orig_clsf.clone()
-        # fit model
-        clsf.h.fit(*L.Xy)
-        # compute true accs
-        # create dataset bundle
-        D = DatasetBundle(dataset_name, L.prevalence(), V, U).create_bundle(clsf.h, list(gen_acc_measure()))
+        cd.load()
+
+        if not cd.clsf.loaded:
+            # fit model
+            print(f"{cd.clsf.name}@{cd.D.dataset_name} not trained")
+            cd.clsf.h.fit(*cd.D.L.Xy)
+        if not cd.D.loaded:
+            # create dataset bundle
+            print(f"{cd.clsf.name}@{cd.D.dataset_name} not built")
+            cd.D.get_posteriors(cd.clsf.h)
+
+        cd.D.get_true_accs(list(gen_acc_measure()))
+
+        cd.save()
+
         # store h-dataset combination
-        return (clsf, D)
+        return cd
 
 
 def experiments():
     # cls_train_args = list(gen_model_dataset(gen_classifiers, gen_datasets))
     cls_train_args = []
     for dataset in gen_datasets():
-        _, (L, _, _) = dataset
+        dataset_name, (L, V, U) = dataset
         for model in gen_classifiers(L.n_classes):
-            cls_train_args.append((model, dataset))
+            cls_train_args.append(ClsfDataset(model, dataset_name, L, V, U))
+
     cls_dataset_gen = parallel(
         func=train_cls,
         args_list=cls_train_args,
         n_jobs=cap.env["N_JOBS"],
         return_as="generator_unordered",
     )
+
     cls_dataset = []
-    for clsf, D in cls_dataset_gen:
-        if D.empty:
-            log.info(f"All results for {clsf.name} over {D.dataset_name} exist, skipping")
+    for cd in cls_dataset_gen:
+        if cd.all_results_exist:
+            log.info(f"All results for {cd.clsf.name} over {cd.D.dataset_name} exist, skipping")
         else:
-            log.info(f"Trained {clsf.name} over {D.dataset_name}")
-            cls_dataset.append((clsf, D))
+            log.info(f"Trained {cd.clsf.name} over {cd.D.dataset_name}")
+            cls_dataset.append((cd.clsf, cd.D))
 
     exp_prot_args_list = []
     for clsf, D in cls_dataset:
@@ -229,7 +239,7 @@ def experiments():
                 )
                 r.df.to_json(path)
                 log.info(
-                    f"[{r.clsf.name}@{r.dataset_name}] {r.method_name} on {r.acc_name} done [{timestamp(r.t_train, r.t_test_ave)}]"
+                    f"[{r.clsf.name}@{r.dataset_name}] {r.method_name} on {r.acc_name} done [{timestamp(r.t_ave)}]"
                 )
             elif r.old:
                 log.info(f"[{r.clsf.name}@{r.dataset_name}] {r.method_name} on {r.acc_name} exists, skipping")
