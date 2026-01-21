@@ -1,10 +1,13 @@
 import hashlib
-from dataclasses import dataclass
+import itertools as IT
+import os
+from dataclasses import dataclass, fields, replace
 from typing import Callable, List, Tuple
 
+import joblib
 import numpy as np
 import quapy as qp
-from cap.utils.commons import contingency_table, true_acc
+from cap.utils.commons import contingency_table, true_acc_from_posteriors
 from quapy.data import LabelledCollection
 from quapy.protocol import UPP, AbstractStochasticSeededProtocol
 from sklearn import clone
@@ -18,9 +21,10 @@ from util import split_validation
 @dataclass
 class DatasetBundle:
     dataset_name: str
-    L_prevalence: np.ndarray
+    L: LabelledCollection
     V: LabelledCollection
     U: LabelledCollection
+    L_prevalence: np.ndarray = None
     V1: LabelledCollection = None
     V2_prot: AbstractStochasticSeededProtocol = None
     test_prot: AbstractStochasticSeededProtocol = None
@@ -30,9 +34,13 @@ class DatasetBundle:
     test_prot_posteriors: np.ndarray = None
     test_prot_y_hat: np.ndarray = None
     test_prot_true_cts: np.ndarray = None
+    true_accs: dict = None
     n_classes: int = -1
+    loaded: bool = False
+    updated: bool = False
 
-    def create_bundle(self, h: BaseEstimator, accs: List[Tuple[str, Callable[[np.ndarray, np.ndarray], float]]]):
+    def create_sets(self):
+        self.L_prevalence = self.L.prevalence()
         self.n_classes = self.L_prevalence.shape[0]
 
         # generate test protocol
@@ -44,8 +52,11 @@ class DatasetBundle:
         )
 
         # split validation set
-        self.V1, self.V2_prot = split_validation(self.V)
+        self.V1, self.V2_prot = split_validation(self.V, random_state=qp.environ["_R_SEED"])
 
+        return self
+
+    def get_posteriors(self, h: BaseEstimator):
         # precomumpute model posteriors for validation sets
         self.V_posteriors = h.predict_proba(self.V.X)
         self.V1_posteriors = h.predict_proba(self.V1.X)
@@ -62,10 +73,20 @@ class DatasetBundle:
             self.test_prot_y_hat.append(y_hat)
             self.test_prot_true_cts.append(contingency_table(sample.y, y_hat, sample.n_classes))
 
+        return self
+
+    def get_true_accs(self, accs: List[Tuple[str, Callable[[np.ndarray, np.ndarray], float]]]):
         # compute true accs for h on dataset
-        self.true_accs = {}
-        for acc_name, acc_fn in accs:
-            self.true_accs[acc_name] = [true_acc(h, acc_fn, Ui) for Ui in self.test_prot()]
+        self.true_accs = {} if self.true_accs is None else self.true_accs
+        missing_accs = [(acc_name, acc_fn) for acc_name, acc_fn in accs if acc_name not in self.true_accs]
+        for acc_name, acc_fn in missing_accs:
+            self.true_accs[acc_name] = [
+                true_acc_from_posteriors(acc_fn, Ui, Ui_P)
+                for Ui, Ui_P in IT.zip_longest(self.test_prot(), self.test_prot_posteriors)
+            ]
+
+        if len(missing_accs) > 0:
+            self.updated = True
 
         return self
 
