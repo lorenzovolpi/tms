@@ -155,3 +155,65 @@ class ClsVariant:
     @classmethod
     def mock(cls):
         return ClsVariant("mock", LogisticRegression(), {})
+
+
+class ClsfDataset:
+    BASE_PATH = ["output", "tms", "models"]
+
+    def __init__(
+        self,
+        clsf: ClsVariant,
+        dataset_name: str,
+        L: LabelledCollection,
+        V: LabelledCollection,
+        U: LabelledCollection,
+    ):
+        self.clsf = clsf.clone()
+        self.D = DatasetBundle(dataset_name, L, V, U)
+        self.all_results_exist = False
+
+    def already_done(self):
+        self.all_results_exist = True
+        return self
+
+    @property
+    def basedir(self):
+        basedir = os.path.join(*self.BASE_PATH)
+        os.makedirs(basedir, exist_ok=True)
+        return basedir
+
+    @property
+    def clsf_path(self):
+        return os.path.join(
+            self.basedir,
+            f"clsf_{self.clsf.file_name}_{self.D.dataset_name}_{self.D.n_classes}.joblib",
+        )
+
+    @property
+    def dataset_path(self):
+        return os.path.join(
+            self.basedir,
+            f"dataset_{self.clsf.file_name}_{self.D.dataset_name}_{self.D.n_classes}.joblib",
+        )
+
+    def save(self):
+        if not os.path.exists(self.clsf_path):
+            joblib.dump(self.clsf, self.clsf_path)
+        if not os.path.exists(self.dataset_path) or self.D.updated:
+            data = self.D.dump()
+            joblib.dump(data, self.dataset_path)
+
+        return self
+
+    def load(self):
+        self.D.create_sets()
+        if os.path.exists(self.dataset_path):
+            data = joblib.load(self.dataset_path)
+            self.D = self.D.load(data)
+            self.D.loaded = True
+
+        if os.path.exists(self.clsf_path):
+            self.clsf = joblib.load(self.clsf_path)
+            self.clsf.loaded = True
+
+        return self
