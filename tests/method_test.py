@@ -11,13 +11,16 @@ from cap.utils.commons import parallel
 from sklearn.linear_model import LogisticRegression
 from sklearn.neural_network import MLPClassifier
 
+import main
 from config import ClsVariant, DatasetBundle
+from data import ClsfDataset
 from main import EXP, exp_protocol, train_cls
 from method.ims import IMS
 from method.tms import LEAP, RQBS
 from results import Results
 
 qp.environ["SAMPLE_SIZE"] = 1000
+main.EXPERIMENT = "tests"
 
 
 def gen_classifiers(n_classes):
@@ -78,26 +81,27 @@ if __name__ == "__main__":
     outdir = os.path.join("output", "tests")
     os.makedirs(outdir, exist_ok=True)
     out_json = os.path.join(outdir, "results.json")
+    ClsfDataset.BASE_PATH = ["output", "tests", "models"]
 
     if not os.path.exists(out_json):
         cls_train_args = []
         for dataset in gen_datasets():
-            _, (L, _, _) = dataset
+            dataset_name, (L, V, U) = dataset
             for model in gen_classifiers(L.n_classes):
-                cls_train_args.append((model, dataset))
+                cls_train_args.append(ClsfDataset(model, dataset_name, L, V, U))
 
         cls_dataset = [train_cls(arg) for arg in cls_train_args]
-        cls_dataset = [cd for cd in cls_dataset if not cd[1].empty]
-        for clsf, D in cls_dataset:
-            print(f"trained {clsf.name}@{D.dataset_name}")
+        cls_dataset = [cd for cd in cls_dataset if not cd.all_results_exist]
+        for cd in cls_dataset:
+            print(f"trained {cd.clsf.name}@{cd.D.dataset_name}")
 
         exp_prot_args_list = []
-        for clsf, D in cls_dataset:
-            for method_name, method, val, val_posteriors in gen_methods(clsf, D):
-                exp_prot_args_list.append((clsf, D, method_name, method, val, val_posteriors))
+        for cd in cls_dataset:
+            for method_name, method, val, val_posteriors in gen_methods(cd.clsf, cd.D):
+                exp_prot_args_list.append((cd.clsf, cd.D, method_name, method, val, val_posteriors))
 
         # results = [exp_protocol(arg) for arg in exp_prot_args_list]
-        results: Iterable[list[EXP]] = parallel(
+        results_gen: Iterable[list[EXP]] = parallel(
             func=exp_protocol,
             args_list=exp_prot_args_list,
             n_jobs=10,
@@ -105,7 +109,15 @@ if __name__ == "__main__":
             max_nbytes=None,
         )
 
-        dfs = [r.df for res in results for r in res]
+        results = []
+        for res in results_gen:
+            for r in res:
+                if r.ok:
+                    results.append(r)
+                elif r.error:
+                    print(f"{r.clsf.name}@{r.dataset_name}:{r.err}")
+
+        dfs = [r.df for r in results]
         res = Results(pd.concat(dfs, axis=0))
         res.df.index = range(len(res.df))
         res.df.to_json(out_json)
