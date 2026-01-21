@@ -98,6 +98,22 @@ class DatasetBundle:
     def empty(self):
         return self.V is None or self.U is None
 
+    def dump(self):
+        fields_to_dump: list[str] = [
+            "V_posteriors",
+            "V1_posteriors",
+            "V2_prot_posteriors",
+            "test_prot_posteriors",
+            "test_prot_y_hat",
+            "test_prot_true_cts",
+            "true_accs",
+        ]
+        data = {f: getattr(self, f) for f in fields_to_dump}
+        return data
+
+    def load(self, data: dict):
+        return replace(self, **data)
+
 
 class ClsVariant:
     def __init__(self, class_name: str, h: BaseEstimator, params: dict, ms_ignore=False):
