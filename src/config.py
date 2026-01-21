@@ -88,6 +88,7 @@ def gen_classifiers(n_classes) -> Iterable[ClsVariant]:
         h=SVMlight(kernel="rbf"),
         params={},
         ms_ignore=False,
+        dumpable_h=False,
     )
 
 
@@ -130,7 +131,7 @@ def gen_datasets(
 def gen_acc_measure():
     multiclass = env.PROBLEM == "multiclass"
     yield "vanilla_accuracy", vanilla_acc
-    # yield "macro-F1", (smooth(f1_macro) if multiclass else smooth(f1))
+    yield "macro-F1", (smooth(f1_macro) if multiclass else smooth(f1))
     # yield "macro-K", (k_macro if multiclass else k_bin)
 
 
