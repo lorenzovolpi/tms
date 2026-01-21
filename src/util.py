@@ -70,10 +70,9 @@ def get_plain_prev(prev: np.ndarray):
         return float(np.around(prev, decimals=4)[-1])
 
 
-def timestamp(t_train: float, t_test_ave: float) -> str:
-    t_train = round(t_train, ndigits=3)
-    t_test_ave = round(t_test_ave, ndigits=3)
-    return f"{t_train=}s; {t_test_ave=}s"
+def timestamp(t_ave: float) -> str:
+    t_ave = round(t_ave, ndigits=3)
+    return f"{t_ave=}s"
 
 
 def get_test_prot(U: LabelledCollection, repeats=1000, sample_size=None, return_type="labelled_collection"):
