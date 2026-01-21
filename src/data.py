@@ -116,13 +116,15 @@ class DatasetBundle:
 
 
 class ClsVariant:
-    def __init__(self, class_name: str, h: BaseEstimator, params: dict, ms_ignore=False):
+    def __init__(self, class_name: str, h: BaseEstimator, params: dict, ms_ignore=False, dumpable_h=True):
         self.class_name: str = class_name
         self.base = h
         self.params: dict = params
         self.default: bool = self._is_default(h, params)
         self.h: BaseEstimator = self._get_cls(h, params)
         self.ms_ignore: bool = ms_ignore
+        self.loaded = False
+        self.dumpable_h = dumpable_h
 
         self._set_names()
 
