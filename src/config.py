@@ -15,7 +15,7 @@ from sklearn.svm import SVC
 import env
 from data import ClsVariant, DatasetBundle
 from method.ims import IMS
-from method.tms import LEAP, RQBS
+from method.tms import LEAP, RQBS, DoC, PrediQuant, RQBScap
 from svmlight import SVMlight
 from util import sort_datasets_by_size
 
@@ -139,6 +139,9 @@ def gen_methods(clsf: ClsVariant, D: DatasetBundle):
     yield "IMS", IMS(clsf, D), D.V, D.V_posteriors
     yield "TMS_LEAP", LEAP(clsf, D), D.V, D.V_posteriors
     yield "TMS_RQBS", RQBS(clsf, D), D.V, D.V_posteriors
+    # yield "TMS_RQBScap", RQBScap(clsf, D), D.V, D.V_posteriors
+    # yield "TMS_PrediQuant", PrediQuant(clsf, D), D.V1, D.V1_posteriors
+    # yield "TMS_DoC", DoC(clsf, D), D.V1, D.V1_posteriors
 
 
 def get_classifier_names():
