@@ -1,9 +1,13 @@
+from abc import abstractmethod
 from time import time
-from typing import override
+from typing import Callable, Literal, override
 
+import cap
+import cap.models.cont_table as cont_table
+import cap.models.direct as direct
 import numpy as np
 import quapy as qp
-from cap.models.cont_table import O_LEAP
+from cap.models.base import CAP, ClassifierAccuracyPrediction
 from cap.utils.commons import contingency_table
 from quapy.data import LabelledCollection
 from quapy.method.aggregative import KDEyML
@@ -16,16 +20,16 @@ from method.base import ModelSelection
 class TMS(ModelSelection): ...
 
 
-class LEAP(TMS):
+class TMS_CAP(TMS):
     @override
-    def rank(self, acc_fn, val: LabelledCollection, val_posteriors: np.ndarray):
+    def rank(self, acc_fn: Callable, val: LabelledCollection, val_posteriors: np.ndarray):
         if self.clsf.ms_ignore:
             return self.empty_rank()
 
         tinit = time()
 
-        leap = O_LEAP(acc_fn, KDEyML(MLPClassifier())).fit(val, val_posteriors)
-        ranking_vals = leap.batch_predict(self.D.test_prot, self.D.test_prot_posteriors, get_estim_cts=False)
+        model = self.get_cap_model(acc_fn, val, val_posteriors)
+        ranking_vals = self.get_ranking_vals(model)
 
         t_ave = (time() - tinit) / self.D.test_prot.total()
 
@@ -33,6 +37,81 @@ class LEAP(TMS):
             ranking_vals=ranking_vals,
             t_ave=t_ave,
         )
+
+    @abstractmethod
+    def get_cap_model(self, acc_fn: Callable, val: LabelledCollection, val_posteriors: np.ndarray): ...
+
+    def get_ranking_vals(self, model: CAP):
+        return model.batch_predict(self.D.test_prot, self.D.test_prot_posteriors)
+
+
+class LEAP(TMS_CAP):
+    @override
+    def get_cap_model(self, acc_fn, val: LabelledCollection, val_posteriors: np.ndarray):
+        return cont_table.O_LEAP(acc_fn, KDEyML(MLPClassifier())).fit(val, val_posteriors)
+
+
+class RQBScap(TMS_CAP):
+    """
+    Reverse Quantification-Based Sampling
+    implemented using the CAP method
+    """
+
+    def __init__(
+        self,
+        clsf: ClsVariant,
+        D: DatasetBundle,
+        n_vsamples: int = 100,
+        sample_size: int = None,
+        aggr: Literal["mean", "median"] = "median",
+    ):
+        super().__init__(clsf, D)
+        self.rqbs_params = dict(
+            n_vsamples=n_vsamples,
+            sample_size=sample_size,
+            aggr=aggr,
+        )
+
+    @override
+    def get_cap_model(self, acc_fn, val: LabelledCollection, val_posteriors: np.ndarray):
+        return direct.RQBS(acc_fn, KDEyML(MLPClassifier()), **self.rqbs_params).fit(val, val_posteriors)
+
+
+class PrediQuant(TMS_CAP):
+    def __init__(
+        self,
+        clsf: ClsVariant,
+        D: DatasetBundle,
+        alpha=0.3,
+        alpha_rate=1.2,
+        sample_size: int = None,
+        error: str | Callable = cap.error.mae,
+        predict_train_prev=True,
+    ):
+        super().__init__(clsf, D)
+        self.prediq_params = dict(
+            alpha=alpha,
+            alpha_rate=alpha_rate,
+            sample_size=sample_size,
+            error=error,
+            predict_train_prev=predict_train_prev,
+        )
+
+    @override
+    def get_cap_model(self, acc_fn: Callable, val: LabelledCollection, val_posteriors: np.ndarray):
+        return direct.PrediQuant(
+            acc=acc_fn,
+            q=KDEyML(self.clsf.h),
+            protocol=self.D.V2_prot,
+            prot_posteriors=self.D.V2_prot_posteriors,
+            **self.prediq_params,
+        ).fit(val, val_posteriors)
+
+
+class DoC(TMS_CAP):
+    @override
+    def get_cap_model(self, acc_fn: Callable, val: LabelledCollection, val_posteriors: np.ndarray):
+        return direct.DoC(acc_fn, self.D.V2_prot, self.D.V2_prot_posteriors).fit(val, val_posteriors)
 
 
 class RQBS(TMS):
