@@ -132,7 +132,7 @@ def gen_acc_measure():
     multiclass = env.PROBLEM == "multiclass"
     yield "vanilla_accuracy", vanilla_acc
     yield "macro-F1", (smooth(f1_macro) if multiclass else smooth(f1))
-    # yield "macro-K", (k_macro if multiclass else k_bin)
+    yield "macro-K", (k_macro if multiclass else k_bin)
 
 
 def gen_methods(clsf: ClsVariant, D: DatasetBundle):
@@ -140,8 +140,8 @@ def gen_methods(clsf: ClsVariant, D: DatasetBundle):
     yield "TMS_LEAP", LEAP(clsf, D), D.V, D.V_posteriors
     yield "TMS_RQBS", RQBS(clsf, D), D.V, D.V_posteriors
     # yield "TMS_RQBScap", RQBScap(clsf, D), D.V, D.V_posteriors
-    # yield "TMS_PrediQuant", PrediQuant(clsf, D), D.V1, D.V1_posteriors
-    # yield "TMS_DoC", DoC(clsf, D), D.V1, D.V1_posteriors
+    yield "TMS_PrediQuant", PrediQuant(clsf, D), D.V1, D.V1_posteriors
+    yield "TMS_DoC", DoC(clsf, D), D.V1, D.V1_posteriors
 
 
 def get_classifier_names():
