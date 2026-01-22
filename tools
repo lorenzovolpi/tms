@@ -51,7 +51,7 @@ def run_log(args: Namespace):
     if args.less:
         command = f"{args.host} cat {_workdir}/output/{_module}.log | bat -l syslog"
     else:
-        command = f"{args.host} tail -f -n +0 {_workdir}/output/{_module}.log | bat -P -l syslog"
+        command = f"{args.host} tail -f -n -5000 {_workdir}/output/{_module}.log | bat -P -l syslog"
 
     try:
         sb.run(command, shell=True)
