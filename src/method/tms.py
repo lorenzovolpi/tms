@@ -101,7 +101,7 @@ class PrediQuant(TMS_CAP):
     def get_cap_model(self, acc_fn: Callable, val: LabelledCollection, val_posteriors: np.ndarray):
         return direct.PrediQuant(
             acc=acc_fn,
-            q=KDEyML(self.clsf.h),
+            quantifier=KDEyML(self.clsf.h),
             protocol=self.D.V2_prot,
             prot_posteriors=self.D.V2_prot_posteriors,
             **self.prediq_params,
@@ -159,7 +159,6 @@ class RQBS(TMS):
                 vaili_ct = contingency_table(vali_y, vali_yhat, self.D.n_classes)
                 accs.append(acc_fn(vaili_ct))
             ranking_vals.append(np.median(accs))
-        ranking_vals = np.array(ranking_vals)
 
         t_ave = (time() - tinit) / self.D.test_prot.total()
 
