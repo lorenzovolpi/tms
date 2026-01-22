@@ -2,6 +2,7 @@ from time import time
 from typing import override
 
 import numpy as np
+from cap.utils.commons import contingency_table
 from quapy.data import LabelledCollection
 
 from method.base import ModelSelection
@@ -17,8 +18,9 @@ class IMS(ModelSelection):
 
         y = val.y
         y_hat = np.argmax(val_posteriors, axis=1)
-        val_acc = acc_fn(y, y_hat)
-        ranking_vals = np.full(self.D.test_prot.total(), val_acc)
+        ct = contingency_table(y, y_hat, self.D.n_classes)
+        val_acc = acc_fn(ct)
+        ranking_vals = np.full(self.D.test_prot.total(), val_acc).tolist()
 
         t_ave = (time() - tinit) / self.D.test_prot.total()
 
