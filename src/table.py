@@ -23,7 +23,8 @@ method_map = {
     "Naive-SVM": "\\imssvm",
     "Naive-MLP": "\\imsmlp",
     "Naive": "\\imsall",
-    "O-LEAP(KDEy)": "\\tmsall",
+    "TMS_LEAP": "\\leapall",
+    "TMS_RQBS": "\\rqbsall",
 }
 
 dataset_map = {
@@ -32,6 +33,22 @@ dataset_map = {
     "page_block": "page-block",
     "image_seg": "image-seg",
 }
+
+
+def ms_selection():
+    return {
+        "oracle": True,
+        "default": [],
+        "method": [
+            ("IMS", "LR"),
+            ("IMS", "kNN"),
+            ("IMS", "SVM"),
+            ("IMS", "MLP"),
+            ("IMS", None),
+            ("TMS_LEAP", None),
+            ("TMS_RQBS", None),
+        ],
+    }
 
 
 def gen_tables():
@@ -69,8 +86,7 @@ def gen_tables():
             res = (
                 Results.load(base_dir=base_dir, acc_name=acc, dataset=dataset, set_problem=False)
                 # .split_by_shift(prevs=0.5)
-                # TODO: split model_selection in submethods
-                .model_selection(oracle=False, rank_label=rank_label)
+                .model_selection(selection=ms_selection(), rank_label=rank_label)
                 .map_column_values("method", method_map)
                 .map_column_values("dataset", dataset_map)
                 .apply_to_column("dataset", decorate_dataset)
@@ -115,7 +131,8 @@ def gen_tables():
     # )
 
 
-def gen_pdf(experiment: Literal["transd", "hoptim"]):
+def gen_pdf():
+    experiment = main.EXPERIMENT
     table_dir = os.path.join(env.root_dir, "tables")
     os.makedirs(table_dir, exist_ok=True)
     pickle_path = os.path.join(table_dir, f"{experiment}.pickle")
@@ -126,7 +143,8 @@ def gen_pdf(experiment: Literal["transd", "hoptim"]):
 
     pdf_path = os.path.join(table_dir, f"{experiment}.pdf")
     new_commands = [
-        "\\newcommand{\\tmsall}{TMS-All}",
+        "\\newcommand{\\leapall}{LEAP-All}",
+        "\\newcommand{\\rqbsall}{RQBS-All}",
         "\\newcommand{\\imsall}{IMS-All}",
         "\\newcommand{\\imslr}{IMS-LR}",
         "\\newcommand{\\imsknn}{IMS-$k$NN}",
@@ -138,8 +156,8 @@ def gen_pdf(experiment: Literal["transd", "hoptim"]):
         "\\newcommand{\\nomstsvm}{$\\emptyset$-TSVM}",
         "\\newcommand{\\nomsmlp}{$\\emptyset$-MLP}",
     ]
-    column_alignment = [5, 5, 1], "c"
-    additional_headers = [("$\\emptyset$", 5), ("IMS", 5), ("TMS", 1)]
+    column_alignment = [1, 5, 2], "c"
+    additional_headers = [("oracle", 1), ("IMS", 5), ("TMS", 2)]
     Table.LatexPDF(
         pdf_path,
         tables=tbls,

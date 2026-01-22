@@ -170,6 +170,7 @@ class Results(ABC):
         return Results(pd.concat(dfs, axis=0))
 
     def default_classifier_ms(self) -> "Results":
+        # TODO: fix to select only a specified classifier
         accs = get_acc_names()
         classifiers = get_classifier_names()
 
@@ -191,23 +192,13 @@ class Results(ABC):
 
         return Results(pd.concat(dfs, axis=0))
 
-    def model_selection(self, oracle=False, rank_label="ranking_vals") -> "Results":
-        classifier_classes = get_classifier_class_names()
-        spread_methods = ["IMS"]
-        methods = get_method_names()
-
-        dfs = (
-            [self.default_classifier_ms()]
-            + [
-                self.method_ms(method=m, classifier_class=cls_class, rank_label=rank_label)
-                for m, cls_class in IT.product(spread_methods, classifier_classes)
-            ]
-            + [self.method_ms(method=m, rank_label=rank_label) for m in methods]
-        )
-
-        if oracle:
+    def model_selection(self, selection: dict, rank_label="ranking_vals") -> "Results":
+        dfs = []
+        if selection["oracle"]:
             dfs.append(self.oracle_ms())
-
+        for m, cls_class in selection["method"]:
+            dfs.append(self.method_ms(method=m, classifier_class=cls_class, rank_label=rank_label))
+        # TODO: add default_classifier_ms
         return Results.concat(dfs, axis=0)
 
     def filter_column_values(
