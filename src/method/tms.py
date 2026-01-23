@@ -6,32 +6,31 @@ import cap
 import cap.models.cont_table as cont_table
 import cap.models.direct as direct
 import numpy as np
-import quapy as qp
-from cap.models.base import CAP, ClassifierAccuracyPrediction
-from cap.utils.commons import contingency_table
+from cap.models.base import CAP
 from quapy.data import LabelledCollection
 from quapy.method.aggregative import KDEyML
+from quapy.protocol import AbstractStochasticSeededProtocol
 from sklearn.neural_network import MLPClassifier
 
-from data import ClsVariant, DatasetBundle
-from method.base import ModelSelection
+from data import PreTrainedClassifier
+from method.base import ModelSelectionMethod, NeedsValidationProtocol
 
 
-class TMS(ModelSelection): ...
+class TMS(ModelSelectionMethod): ...
 
 
 class TMS_CAP(TMS):
     @override
-    def rank(self, acc_fn: Callable, val: LabelledCollection, val_posteriors: np.ndarray):
-        if self.clsf.ms_ignore:
-            return self.empty_rank()
-
+    def rank(self, h: PreTrainedClassifier, val: LabelledCollection, test_protocol: AbstractStochasticSeededProtocol):
         tinit = time()
 
-        model = self.get_cap_model(acc_fn, val, val_posteriors)
-        ranking_vals = self.get_ranking_vals(model)
+        n_test_samples = test_protocol.total()
+        val_posteriors = h.predict_proba(val.X)
+        model = self.get_cap_model(self.acc, val, val_posteriors)
+        test_prot_posteriors = [h.predict_proba(Ui.X) for Ui in test_protocol()]
+        ranking_vals = self.get_ranking_vals(model, test_protocol, test_prot_posteriors)
 
-        t_ave = (time() - tinit) / self.D.test_prot.total()
+        t_ave = (time() - tinit) / n_test_samples
 
         return dict(
             ranking_vals=ranking_vals,
@@ -39,19 +38,21 @@ class TMS_CAP(TMS):
         )
 
     @abstractmethod
-    def get_cap_model(self, acc_fn: Callable, val: LabelledCollection, val_posteriors: np.ndarray): ...
+    def get_cap_model(self, h: PreTrainedClassifier, val: LabelledCollection, val_posteriors: np.ndarray): ...
 
-    def get_ranking_vals(self, model: CAP):
-        return model.batch_predict(self.D.test_prot, self.D.test_prot_posteriors)
+    def get_ranking_vals(
+        self, model: CAP, test_protocol: AbstractStochasticSeededProtocol, test_prot_posteriors: np.ndarray
+    ):
+        return model.batch_predict(test_protocol, test_prot_posteriors)
 
 
 class LEAP(TMS_CAP):
     @override
-    def get_cap_model(self, acc_fn, val: LabelledCollection, val_posteriors: np.ndarray):
-        return cont_table.O_LEAP(acc_fn, KDEyML(MLPClassifier())).fit(val, val_posteriors)
+    def get_cap_model(self, h: PreTrainedClassifier, val: LabelledCollection, val_posteriors: np.ndarray):
+        return cont_table.O_LEAP(self.acc, KDEyML(MLPClassifier())).fit(val, val_posteriors)
 
 
-class RQBScap(TMS_CAP):
+class RQBS(TMS_CAP):
     """
     Reverse Quantification-Based Sampling
     implemented using the CAP method
@@ -59,13 +60,12 @@ class RQBScap(TMS_CAP):
 
     def __init__(
         self,
-        clsf: ClsVariant,
-        D: DatasetBundle,
+        acc: Callable,
         n_vsamples: int = 100,
         sample_size: int = None,
         aggr: Literal["mean", "median"] = "median",
     ):
-        super().__init__(clsf, D)
+        super().__init__(acc)
         self.rqbs_params = dict(
             n_vsamples=n_vsamples,
             sample_size=sample_size,
@@ -73,22 +73,21 @@ class RQBScap(TMS_CAP):
         )
 
     @override
-    def get_cap_model(self, acc_fn, val: LabelledCollection, val_posteriors: np.ndarray):
-        return direct.RQBS(acc_fn, KDEyML(MLPClassifier()), **self.rqbs_params).fit(val, val_posteriors)
+    def get_cap_model(self, h: PreTrainedClassifier, val: LabelledCollection, val_posteriors: np.ndarray):
+        return direct.RQBS(self.acc, KDEyML(MLPClassifier()), **self.rqbs_params).fit(val, val_posteriors)
 
 
-class PrediQuant(TMS_CAP):
+class PrediQuant(TMS_CAP, NeedsValidationProtocol):
     def __init__(
         self,
-        clsf: ClsVariant,
-        D: DatasetBundle,
+        acc: Callable,
         alpha=0.3,
         alpha_rate=1.2,
         sample_size: int = None,
         error: str | Callable = cap.error.mae,
         predict_train_prev=True,
     ):
-        super().__init__(clsf, D)
+        super().__init__(acc)
         self.prediq_params = dict(
             alpha=alpha,
             alpha_rate=alpha_rate,
@@ -98,71 +97,21 @@ class PrediQuant(TMS_CAP):
         )
 
     @override
-    def get_cap_model(self, acc_fn: Callable, val: LabelledCollection, val_posteriors: np.ndarray):
+    def get_cap_model(self, h: PreTrainedClassifier, val: LabelledCollection, val_posteriors: np.ndarray):
         return direct.PrediQuant(
-            acc=acc_fn,
+            acc=self.acc,
             quantifier=KDEyML(self.clsf.h),
-            protocol=self.D.V2_prot,
-            prot_posteriors=self.D.V2_prot_posteriors,
+            protocol=self.val_protocol,
+            prot_posteriors=self.get_val_prot_posteriors(h),
             **self.prediq_params,
         ).fit(val, val_posteriors)
 
 
-class DoC(TMS_CAP):
+class DoC(TMS_CAP, NeedsValidationProtocol):
     @override
-    def get_cap_model(self, acc_fn: Callable, val: LabelledCollection, val_posteriors: np.ndarray):
-        return direct.DoC(acc_fn, self.D.V2_prot, self.D.V2_prot_posteriors).fit(val, val_posteriors)
-
-
-class RQBS(TMS):
-    """
-    Reverse Quantification-Based Sampling
-    """
-
-    val_sidx_dict = {}
-
-    def __init__(
-        self,
-        clsf: ClsVariant,
-        D: DatasetBundle,
-        n_vsamples=100,
-        sample_size=None,
-    ):
-        super().__init__(clsf, D)
-        self.n_vsamples = n_vsamples
-        self.sample_size = qp.environ["SAMPLE_SIZE"] if sample_size is None else sample_size
-
-    @override
-    def rank(self, acc_fn, val: LabelledCollection, val_posteriors: np.ndarray):
-        if self.clsf.ms_ignore:
-            return self.empty_rank()
-
-        tinit = time()
-
-        sidx = self.val_sidx_dict.get((self.D.dataset_name, self.D.n_classes), None)
-        if sidx is None:
-            q = KDEyML(MLPClassifier()).fit(val)
-            q_hats = [q.quantify(Ui.X) for Ui in self.D.test_prot()]
-            # normalize q_hats
-            q_hats = [q_hat / q_hat.sum() for q_hat in q_hats]
-            sidx = np.asarray(
-                [[val.sampling_index(self.sample_size, *q_hat) for _ in range(self.n_vsamples)] for q_hat in q_hats]
-            )
-            self.val_sidx_dict[(self.D.dataset_name, self.D.n_classes)] = sidx
-
-        ranking_vals = []
-        for vidxs in sidx:
-            accs = []
-            for idx in vidxs:
-                vali_yhat = val_posteriors[idx, :].argmax(axis=1)
-                vali_y = val.y[idx]
-                vaili_ct = contingency_table(vali_y, vali_yhat, self.D.n_classes)
-                accs.append(acc_fn(vaili_ct))
-            ranking_vals.append(np.median(accs))
-
-        t_ave = (time() - tinit) / self.D.test_prot.total()
-
-        return dict(
-            ranking_vals=ranking_vals,
-            t_ave=t_ave,
-        )
+    def get_cap_model(self, h: PreTrainedClassifier, val: LabelledCollection, val_posteriors: np.ndarray):
+        return direct.DoC(
+            acc_fn=self.acc,
+            protocol=self.val_protocol,
+            prot_posteriors=self.get_val_prot_posteriors(h),
+        ).fit(val, val_posteriors)

@@ -4,25 +4,26 @@ from typing import override
 import numpy as np
 from cap.utils.commons import contingency_table
 from quapy.data import LabelledCollection
+from quapy.protocol import AbstractStochasticSeededProtocol
 
-from method.base import ModelSelection
+from data import PreTrainedClassifier
+from method.base import ModelSelectionMethod
 
 
-class IMS(ModelSelection):
+class IMS(ModelSelectionMethod):
     @override
-    def rank(self, acc_fn, val: LabelledCollection, val_posteriors: np.ndarray):
-        if self.clsf.ms_ignore:
-            return self.empty_rank()
-
+    def rank(self, h: PreTrainedClassifier, val: LabelledCollection, test_protocol: AbstractStochasticSeededProtocol):
+        n_test_samples = test_protocol.total()
+        val_posteriors = h.predict_proba(val.X)
         tinit = time()
 
         y = val.y
         y_hat = np.argmax(val_posteriors, axis=1)
         ct = contingency_table(y, y_hat, self.D.n_classes)
-        val_acc = acc_fn(ct)
-        ranking_vals = np.full(self.D.test_prot.total(), val_acc).tolist()
+        val_acc = self.acc(ct)
+        ranking_vals = np.full(n_test_samples, val_acc).tolist()
 
-        t_ave = (time() - tinit) / self.D.test_prot.total()
+        t_ave = (time() - tinit) / n_test_samples
 
         return dict(
             ranking_vals=ranking_vals,
