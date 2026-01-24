@@ -98,10 +98,6 @@ def split_validation(V: LabelledCollection, ratio=0.6, repeats=100, sample_size=
     return v_train, val_prot
 
 
-def is_excluded(classifier, dataset, method, acc):
-    return False
-
-
 def local_path(dataset_name, cls_name, method_name, acc_name, experiment=None):
     base_dir = env.root_dir if experiment is None else os.path.join(env.root_dir, experiment)
     parent_dir = os.path.join(base_dir, env.PROBLEM, acc_name, dataset_name, method_name)
