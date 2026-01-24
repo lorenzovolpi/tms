@@ -185,7 +185,7 @@ def experiments():
     # cls_train_args = list(gen_model_dataset(gen_classifiers, gen_datasets))
     cls_train_args = []
     for dataset in gen_datasets():
-        dataset_name, (L, V, U) = dataset
+        dataset_name, dataset_coll, (L, V, U) = dataset
         for model in gen_classifiers(L.n_classes):
             cls_train_args.append(ClsfDataset(model, dataset_name, L, V, U))
 

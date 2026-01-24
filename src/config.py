@@ -15,7 +15,7 @@ from sklearn.svm import SVC
 import env
 from data import ClsVariant, DatasetBundle
 from method.ims import IMS
-from method.tms import LEAP, RQBS, DoC, PrediQuant, RQBScap
+from method.tms import LEAP, RQBS, DoC, PrediQuant
 from svmlight import SVMlight
 from util import sort_datasets_by_size
 
@@ -88,7 +88,6 @@ def gen_classifiers(n_classes) -> Iterable[ClsVariant]:
         h=SVMlight(kernel="rbf"),
         params={},
         ms_ignore=False,
-        dumpable_h=False,
     )
 
 
@@ -115,17 +114,19 @@ def gen_datasets(
         ]
         _uci_names = [d for d in UCI_BINARY_DATASETS if d in _uci_bin_native]
         _sorted_uci_names = sort_datasets_by_size(_uci_names, fetch_UCIBinaryDataset)
+        coll = "uci_binary"
         for dn in _sorted_uci_names[:5]:
             dval = None if only_names else fetch_UCIBinaryDataset(dn)
-            yield dn, dval
+            yield dn, coll, dval
     elif env.PROBLEM == "multiclass":
         # _uci_skip = ["isolet", "wine-quality", "letter"]
         _uci_skip = []
         _uci_names = [d for d in UCI_MULTICLASS_DATASETS if d not in _uci_skip]
         _sorted_uci_names = sort_datasets_by_size(_uci_names, fetch_UCIMulticlassDataset)
-        for dataset_name in _sorted_uci_names:
-            dval = None if only_names else fetch_UCIMulticlassDataset(dataset_name)
-            yield dataset_name, dval
+        coll = "uci_multiclass"
+        for dn in _sorted_uci_names:
+            dval = None if only_names else fetch_UCIMulticlassDataset(dn)
+            yield dn, coll, dval
 
 
 def gen_acc_measure():
@@ -155,7 +156,7 @@ def get_classifier_class_names():
 
 
 def get_dataset_names():
-    return [name for name, _ in gen_datasets(only_names=True)]
+    return [name for name, _, _ in gen_datasets(only_names=True)]
 
 
 def get_all_dataset_names():
