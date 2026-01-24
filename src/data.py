@@ -12,6 +12,7 @@ from cap.data.datasets import fetch_UCIBinaryDataset, fetch_UCIMulticlassDataset
 from numba import njit
 from quapy.data import LabelledCollection
 from quapy.protocol import UPP, AbstractStochasticSeededProtocol
+from sklearn.base import BaseEstimator, clone
 
 import env
 from util import split_validation
@@ -81,8 +82,7 @@ class PreTrainedClassifier(ABC):
     def _get_full_name(cls, default: bool, class_name: str, params: dict):
         if default:
             return class_name
-        params_str = cls._get_params_string(params)
-        full_name = f"{class_name}_{cls._hash_params(params_str)}"
+        full_name = f"{class_name}_{cls._hash_params(params)}"
         return full_name
 
     @property
@@ -180,12 +180,25 @@ class PreTrainedClassifier(ABC):
         return self.predict_proba(X)
 
 
-@dataclass
-class DatasetBundle:
-    V1: LabelledCollection = None
-    V2_prot: AbstractStochasticSeededProtocol = None
-    test_prot: AbstractStochasticSeededProtocol = None
+class ClsVariant:
+    def __init__(self, class_name: str, h: BaseEstimator, params: dict, ms_ignore=False):
+        self.class_name: str = class_name
+        self.params: dict = params
+        self.default: bool = self._is_default(h, params)
+        self.h: BaseEstimator = self._get_cls(h, params)
+        self.ms_ignore: bool = ms_ignore
 
+    def _is_default(self, base, params):
+        _par_names = list(params.keys())
+        return params == {k: v for k, v in base.get_params().items() if k in _par_names}
+
+    def _get_cls(self, h, params):
+        _h = clone(h)
+        _h.set_params(**params)
+        return _h
+
+
+class DatasetBundle:
     def __init__(
         self,
         dataset_name: str,
@@ -279,13 +292,11 @@ class ClassifierDatasetBundle:
     h_default: bool
     h_ms_ignore: bool
 
-    def _get_dataset_load_fn(
-        self,
-    ) -> Callable[[str], Tuple[LabelledCollection, LabelledCollection, LabelledCollection]]:
+    def load_dataset(self) -> Tuple[LabelledCollection, LabelledCollection, LabelledCollection]:
         if self.dataset_collection == "uci_binary":
-            return lambda dn: fetch_UCIBinaryDataset(dn)
+            fetch_UCIBinaryDataset(self.dataset_name)
         elif self.dataset_collection == "uci_multiclass":
-            return lambda dn: fetch_UCIMulticlassDataset(dn)
+            fetch_UCIMulticlassDataset(self.dataset_name)
         else:
             raise ValueError(f"Unknown dataset collection: {self.dataset_collection}")
 
@@ -293,16 +304,22 @@ class ClassifierDatasetBundle:
     def load(cls, bunlde_path: str) -> Self:
         return joblib.load(bunlde_path)
 
+    @property
+    def h_name(self):
+        return PreTrainedClassifier._get_name(self.h_default, self.h_class_name, self.h_params)
+
+    @property
+    def h_full_name(self):
+        return PreTrainedClassifier._get_full_name(self.h_default, self.h_class_name, self.h_params)
+
     def save(self):
-        h_full_name = PreTrainedClassifier._get_full_name(self.h_default, self.h_class_name, self.h_params)
-        basedir = os.path.join("output", "tms", "models")
+        basedir = os.path.join("output", "tms", "pretrain")
         os.makedirs(basedir, exist_ok=True)
-        save_path = os.path.join(basedir, f"{h_full_name}_{self.dataset_name}_{self.n_casses}.joblib")
+        save_path = os.path.join(basedir, f"{self.h_full_name}_{self.dataset_name}_{self.n_classes}.joblib")
         joblib.dump(self, save_path)
 
     def get_dataset_classifier(self) -> Tuple[DatasetBundle, PreTrainedClassifier]:
-        load_dataset = self._get_dataset_load_fn()
-        L, V, U = load_dataset(self.dataset_name)
+        L, V, U = self.load_dataset()
         dataset = DatasetBundle(
             self.dataset_name,
             self.dataset_collection,
