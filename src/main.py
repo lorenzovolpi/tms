@@ -23,7 +23,7 @@ from config import (
 )
 from data import ClsfDataset
 from env import PROJECT
-from method.base import ModelSelection
+from method.base import ModelSelectionMethod
 from util import (
     all_exist_pre_check,
     gen_method_df,
@@ -90,19 +90,18 @@ def exp_protocol(
         ClsVariant,
         DatasetBundle,
         str,
-        ModelSelection,
+        ModelSelectionMethod,
         LabelledCollection,
         np.ndarray,
     ],
-) -> list[EXP]:
+) -> EXP:
+    bundle_path, method_name, method, acc_name, acc_fn = args
     clsf, D, method_name, method, val, val_posteriors = args
     results = []
 
     L_prev = get_plain_prev(D.L_prevalence)
     val_prev = get_plain_prev(val.prevalence())
     for acc_name, acc_fn in gen_acc_measure():
-        if is_excluded(clsf.name, D.dataset_name, method_name, acc_name):
-            continue
         path = local_path(D.dataset_name, clsf.file_name, method_name, acc_name, experiment=EXPERIMENT)
         if os.path.exists(path):
             results.append(EXP.EXISTS(clsf, D.dataset_name, acc_name, method_name))
