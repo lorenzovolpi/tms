@@ -105,31 +105,6 @@ def gen_tables():
     with open(pickle_path, "wb") as f:
         pickle.dump(tbls, f)
 
-    # pdf_path = os.path.join(table_dir, f"{experiment}.pdf")
-    # new_commands = [
-    #     "\newcommand{\tmsall}{TMS-All}",
-    #     "\newcommand{\imsall}{IMS-All}",
-    #     "\\newcommand{\\imslr}{IMS-LR}",
-    #     "\\newcommand{\\imsknn}{IMS-$k$NN}",
-    #     "\\newcommand{\\imssvm}{IMS-SVM}",
-    #     "\\newcommand{\\imsmlp}{IMS-MLP}",
-    #     "\\newcommand{\\nomslr}{$\\emptyset$-LR}",
-    #     "\\newcommand{\\nomsknn}{$\\emptyset$-$k$NN}",
-    #     "\\newcommand{\\nomssvm}{$\\emptyset$-SVM}",
-    #     "\\newcommand{\\nomstsvm}{$\\emptyset$-TSVM}",
-    #     "\\newcommand{\\nomsmlp}{$\\emptyset$-MLP}",
-    # ]
-    # column_alignment = [5, 5, 1], "c"
-    # additional_headers = [("$\\emptyset$", 5), ("IMS", 5), ("TMS", 1)]
-    # Table.LatexPDF(
-    #     pdf_path,
-    #     tables=tbls,
-    #     landscape=False,
-    #     new_commands=new_commands,
-    #     column_alignment=column_alignment,
-    #     additional_headers=additional_headers,
-    # )
-
 
 def gen_pdf():
     experiment = main.EXPERIMENT
