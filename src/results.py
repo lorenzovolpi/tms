@@ -16,6 +16,7 @@ from config import (
     get_classifier_names,
     get_method_names,
 )
+from util import load_df
 
 
 class Results(ABC):
@@ -38,7 +39,7 @@ class Results(ABC):
             recursive=True,
         ):
             if filter_methods is None or Path(path).parent.name in filter_methods:
-                dfs.append(pd.read_json(path))
+                dfs.append(load_df(path))
 
         return Results(pd.concat(dfs, axis=0))
 

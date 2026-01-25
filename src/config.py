@@ -1,5 +1,5 @@
 import itertools as IT
-from typing import Iterable
+from typing import Iterable, Tuple
 
 import numpy as np
 from cap.data.datasets import fetch_UCIBinaryDataset, fetch_UCIMulticlassDataset
@@ -7,13 +7,14 @@ from cap.error import f1, f1_macro, k_bin, k_macro, smooth, vanilla_acc
 from quapy.data import LabelledCollection
 from quapy.data.datasets import UCI_BINARY_DATASETS, UCI_MULTICLASS_DATASETS
 from quapy.method.aggregative import KDEyML
+from sklearn.base import BaseEstimator, clone
 from sklearn.linear_model import LogisticRegression
 from sklearn.neighbors import KNeighborsClassifier as KNN
 from sklearn.neural_network import MLPClassifier as MLP
 from sklearn.svm import SVC
 
 import env
-from data import ClsVariant, DatasetBundle
+from data import ClassifierInfo, DatasetBundle
 from method.ims import IMS
 from method.tms import LEAP, RQBS, DoC, PrediQuant
 from svmlight import SVMlight
@@ -30,6 +31,17 @@ def kdey():
 #
 #     params_str = ";".join([f"{k}={v}" for k, v in params.items()])
 #     return f"{base_name}_[{params_str}]"
+
+
+def _get_classifier(h, params):
+    _h = clone(h)
+    _h.set_params(**params)
+    return _h
+
+
+def _is_h_default(base, params):
+    _par_names = list(params.keys())
+    return params == {k: v for k, v in base.get_params().items() if k in _par_names}
 
 
 def _get_class_weights(n_classes):
@@ -74,21 +86,19 @@ def gen_classifier_classes(n_classes):
     yield "MLP", MLP(), MLP_param_grid
 
 
-def gen_classifiers(n_classes) -> Iterable[ClsVariant]:
+def gen_classifiers(n_classes) -> Iterable[Tuple[BaseEstimator, ClassifierInfo]]:
     for name, base, param_grid in gen_classifier_classes(n_classes):
         _par_names = list(param_grid.keys())
         _par_combos = IT.product(*list(param_grid.values()))
         for _combo in _par_combos:
             _params = dict(zip(_par_names, _combo))
-            yield ClsVariant(class_name=name, h=base, params=_params)
+            h = _get_classifier(base, _params)
+            is_default = _is_h_default(base, _params)
+            yield h, ClassifierInfo(class_name=name, params=_params, default=is_default)
 
     # SVM-transductive classifier
-    yield ClsVariant(
-        class_name="SVM-t",
-        h=SVMlight(kernel="rbf"),
-        params={},
-        ms_ignore=False,
-    )
+    svmt = SVMlight(kernel="rbf")
+    yield svmt, ClassifierInfo(class_name="SVM-t", params={}, default=True)
 
 
 def gen_datasets(
@@ -136,13 +146,14 @@ def gen_acc_measure():
     yield "macro-K", (k_macro if multiclass else k_bin)
 
 
-def gen_methods(clsf: ClsVariant, D: DatasetBundle):
-    yield "IMS", IMS(clsf, D), D.V, D.V_posteriors
-    yield "TMS_LEAP", LEAP(clsf, D), D.V, D.V_posteriors
-    yield "TMS_RQBS", RQBS(clsf, D), D.V, D.V_posteriors
-    # yield "TMS_RQBScap", RQBScap(clsf, D), D.V, D.V_posteriors
-    yield "TMS_PrediQuant", PrediQuant(clsf, D), D.V1, D.V1_posteriors
-    yield "TMS_DoC", DoC(clsf, D), D.V1, D.V1_posteriors
+def gen_methods():
+    _, acc = next(gen_acc_measure())
+    yield "IMS", IMS(acc)
+    yield "TMS_LEAP", LEAP(acc)
+    yield "TMS_RQBS", RQBS(acc)
+    # yield "TMS_RQBScap", RQBScap()
+    yield "TMS_PrediQuant", PrediQuant(acc)
+    yield "TMS_DoC", DoC(acc)
 
 
 def get_classifier_names():
@@ -175,9 +186,6 @@ def get_acc_names():
 
 
 def get_method_names():
-    mock_clsf = ClsVariant.mock()
-    mock_D = DatasetBundle.mock()
-
-    names = [m for m, _, _, _ in gen_methods(mock_clsf, mock_D)]
+    names = [m for m, _ in gen_methods()]
 
     return names

@@ -70,9 +70,10 @@ def get_plain_prev(prev: np.ndarray):
         return float(np.around(prev, decimals=4)[-1])
 
 
-def timestamp(t_ave: float) -> str:
-    t_ave = round(t_ave, ndigits=3)
-    return f"{t_ave=}s"
+def timestamp(t_train: float, t_test_ave: float) -> str:
+    t_train = round(t_train, ndigits=3)
+    t_test_ave = round(t_test_ave, ndigits=3)
+    return f"{t_train=}s; {t_test_ave=}s"
 
 
 def get_test_prot(U: LabelledCollection, repeats=1000, sample_size=None, return_type="labelled_collection"):
@@ -98,18 +99,26 @@ def split_validation(V: LabelledCollection, ratio=0.6, repeats=100, sample_size=
     return v_train, val_prot
 
 
-def local_path(dataset_name, cls_name, method_name, acc_name, experiment=None):
+def local_path(dataset_name, cls_name, method_name, acc_name, experiment=None, format="parquet"):
     base_dir = env.root_dir if experiment is None else os.path.join(env.root_dir, experiment)
     parent_dir = os.path.join(base_dir, env.PROBLEM, acc_name, dataset_name, method_name)
     os.makedirs(parent_dir, exist_ok=True)
-    return os.path.join(parent_dir, f"{cls_name}.json")
+    return os.path.join(parent_dir, f"{cls_name}.{format}")
+
+
+def save_df(df: pd.DataFrame, path: str):
+    # df.to_json(path)
+    df.to_parquet(path, compression="zstd")
+
+
+def load_df(path: str):
+    # return pd.read_json(path)
+    return pd.read_parquet(path)
 
 
 def all_exist_pre_check(dataset_name, cls_name, method_names, acc_names, experiment=None):
     all_exist = True
     for method, acc in IT.product(method_names, acc_names):
-        if is_excluded(cls_name, dataset_name, method, acc):
-            continue
         path = local_path(dataset_name, cls_name, method, acc, experiment=experiment)
         all_exist = os.path.exists(path)
         if not all_exist:

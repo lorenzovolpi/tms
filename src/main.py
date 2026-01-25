@@ -1,5 +1,7 @@
+import itertools as IT
 import os
 from dataclasses import dataclass
+from time import time
 from traceback import print_exception
 from typing import Iterable
 
@@ -9,28 +11,23 @@ import pandas as pd
 import quapy as qp
 from cap.models.cont_table import LEAP
 from cap.utils.commons import get_shift, parallel
-from quapy.data import LabelledCollection
 
+import env
 from config import (
-    ClsVariant,
-    DatasetBundle,
     gen_acc_measure,
-    gen_classifiers,
-    gen_datasets,
     gen_methods,
     get_acc_names,
     get_method_names,
 )
-from data import ClsfDataset
+from data import ClassifierInfo, load_info, load_info_paths
 from env import PROJECT
-from method.base import ModelSelectionMethod
+from method.base import ModelSelectionMethod, NeedsValidationProtocol
 from util import (
-    all_exist_pre_check,
     gen_method_df,
     get_logger,
     get_plain_prev,
-    is_excluded,
     local_path,
+    save_df,
     timestamp,
 )
 
@@ -53,12 +50,13 @@ def get_extra_from_method(df, method):
 @dataclass
 class EXP:
     code: int
-    clsf: ClsVariant
+    h_info: ClassifierInfo
     dataset_name: str
     acc_name: str
     method_name: str
     df: pd.DataFrame = None
-    t_ave: float = None
+    t_train: float = None
+    t_test_ave: float = None
     err: Exception = None
 
     @classmethod
@@ -85,36 +83,48 @@ class EXP:
         return self.code == 400
 
 
-def exp_protocol(
-    args: tuple[
-        ClsVariant,
-        DatasetBundle,
-        str,
-        ModelSelectionMethod,
-        LabelledCollection,
-        np.ndarray,
-    ],
-) -> EXP:
-    bundle_path, method_name, method, acc_name, acc_fn = args
-    clsf, D, method_name, method, val, val_posteriors = args
+def exp_protocol(args: tuple[str, str, ModelSelectionMethod]) -> EXP:
+    # bundle_path, method_name, method, acc_name, acc_fn = args
+    # clsf, D, method_name, method, val, val_posteriors = args
+    info_path, method_name, method = args
     results = []
+
+    D, h, h_info = load_info(info_path)
+    D.get_posteriors(h)
+    if isinstance(method, NeedsValidationProtocol):
+        val, val_posteriors = D.V1, D.V1_posteriors
+        method.set_validation_protocol(D.V2_prot, D.V2_prot_posteriors)
+    else:
+        val, val_posteriors = D.V, D.V_posteriors
+
+    # fit MS method
+    try:
+        tinit = time()
+        method.fit(val, val_posteriors, D.test_prot, D.test_prot_posteriors)
+        t_train = time() - tinit
+    except Exception as e:
+        results.append(EXP.ERROR(e, h_info, D.name, "fit", method_name))
+        return results
 
     L_prev = get_plain_prev(D.L_prevalence)
     val_prev = get_plain_prev(val.prevalence())
+    df_len = D.test_prot.total()
+    test_shift = get_shift(np.array([Ui.prevalence() for Ui in D.test_prot()]), D.L_prevalence).tolist()
+    tp_true_cts = [ct.ravel() for ct in D.test_prot_true_cts]
+
     for acc_name, acc_fn in gen_acc_measure():
-        path = local_path(D.dataset_name, clsf.file_name, method_name, acc_name, experiment=EXPERIMENT)
+        path = local_path(D.name, h_info.full_name, method_name, acc_name, experiment=EXPERIMENT)
         if os.path.exists(path):
-            results.append(EXP.EXISTS(clsf, D.dataset_name, acc_name, method_name))
+            results.append(EXP.EXISTS(h_info, D.name, acc_name, method_name))
             continue
 
-        df_len = D.test_prot.total()
-        test_shift = get_shift(np.array([Ui.prevalence() for Ui in D.test_prot()]), D.L_prevalence).tolist()
-
         try:
-            ms_res = method.rank(acc_fn, val, val_posteriors)
+            tinit = time()
+            ranking_vals = method.rank(acc_fn)
+            t_test_ave = (time() - tinit) / df_len
         except Exception as e:
             print_exception(e)
-            results.append(EXP.ERROR(e, clsf, D.dataset_name, acc_name, method_name))
+            results.append(EXP.ERROR(e, h_info, D.name, acc_name, method_name))
             continue
 
         # df_len = len(estim_accs)
@@ -122,105 +132,61 @@ def exp_protocol(
             df_len,
             uids=np.arange(df_len).tolist(),
             shifts=test_shift,
-            true_accs=D.true_accs[acc_name],
-            classifier=clsf.name,
-            classifier_class=clsf.class_name,
-            default_c=[clsf.default] * df_len,
-            ms_ignore=[clsf.ms_ignore] * df_len,
+            true_cts=tp_true_cts,
+            ranking_vals=ranking_vals,
+            classifier=h_info.name,
+            classifier_class=h_info.class_name,
+            default_c=[h_info.default] * df_len,
+            ms_ignore=[h_info.ms_ignore] * df_len,
             method=method_name,
-            dataset=D.dataset_name,
+            dataset=D.name,
+            collection=D.collection,
+            n_classes=D.n_classes,
             acc_name=acc_name,
             train_prev=[L_prev] * df_len,
             val_prev=[val_prev] * df_len,
-            **ms_res,
+            t_train=t_train,
+            t_test_ave=t_test_ave,
         )
 
         results.append(
             EXP.SUCCESS(
-                clsf,
-                D.dataset_name,
+                h_info,
+                D.name,
                 acc_name,
                 method_name,
                 df=method_df,
-                t_ave=ms_res.get("t_ave", None),
+                t_train=t_train,
+                t_test_ave=t_test_ave,
             )
         )
 
     return results
 
 
-def train_cls(cd: ClsfDataset):
-    #
-    # check if all results for current combination already exist
-    # if so, skip the combination
-    if all_exist_pre_check(
-        dataset_name=cd.D.dataset_name,
-        cls_name=cd.clsf.file_name,
-        method_names=get_method_names(),
-        acc_names=get_acc_names(),
-        experiment=EXPERIMENT,
-    ):
-        return cd.already_done()
-    else:
-        cd.load()
-
-        if not cd.clsf.loaded:
-            # fit model
-            print(f"{cd.clsf.name}@{cd.D.dataset_name} not trained")
-            cd.clsf.h.fit(*cd.D.L.Xy)
-        if not cd.D.loaded:
-            # create dataset bundle
-            print(f"{cd.clsf.name}@{cd.D.dataset_name} not built")
-            cd.D.get_posteriors(cd.clsf.h)
-
-        cd.D.get_true_accs(list(gen_acc_measure()))
-
-        cd.save()
-
-        # store h-dataset combination
-        return cd
-
-
 def experiments():
-    # cls_train_args = list(gen_model_dataset(gen_classifiers, gen_datasets))
-    cls_train_args = []
-    for dataset in gen_datasets():
-        dataset_name, dataset_coll, (L, V, U) = dataset
-        for model in gen_classifiers(L.n_classes):
-            cls_train_args.append(ClsfDataset(model, dataset_name, L, V, U))
-
-    cls_dataset_gen = parallel(
-        func=train_cls,
-        args_list=cls_train_args,
-        n_jobs=cap.env["N_JOBS"],
-        return_as="generator_unordered",
-    )
-
-    cls_dataset = []
-    for cd in cls_dataset_gen:
-        if cd.all_results_exist:
-            log.info(f"All results for {cd.clsf.name} over {cd.D.dataset_name} exist, skipping")
+    experiment_args = []
+    info_paths = load_info_paths(problem=env.PROBLEM)
+    filtered_paths = []
+    for path in info_paths:
+        D, h_info = load_info(path, fast=True)
+        exists = True
+        for acc_name, method_name in IT.product(get_acc_names(), get_method_names()):
+            if not os.path.exists(local_path(D.name, h_info.full_name, method_name, acc_name, experiment=EXPERIMENT)):
+                exists = False
+                break
+        if not exists:
+            filtered_paths.append(path)
         else:
-            log.info(f"Trained {cd.clsf.name} over {cd.D.dataset_name}")
-            cls_dataset.append((cd.clsf, cd.D))
+            log.info(f"[{h_info.name}@{D.name}] all results exist, skipping")
 
-    exp_prot_args_list = []
-    for clsf, D in cls_dataset:
-        for method_name, method, val, val_posteriors in gen_methods(clsf, D):
-            exp_prot_args_list.append(
-                (
-                    clsf,
-                    D,
-                    method_name,
-                    method,
-                    val,
-                    val_posteriors,
-                )
-            )
+    for info_path in filtered_paths:
+        for method_name, method in gen_methods():
+            experiment_args.append((info_path, method_name, method))
 
     results_gen: Iterable[list[EXP]] = parallel(
         func=exp_protocol,
-        args_list=exp_prot_args_list,
+        args_list=experiment_args,
         n_jobs=cap.env["N_JOBS"],
         return_as="generator_unordered",
         max_nbytes=None,
@@ -231,20 +197,20 @@ def experiments():
             if r.ok:
                 path = local_path(
                     r.dataset_name,
-                    r.clsf.file_name,
+                    r.h_info.full_name,
                     r.method_name,
                     r.acc_name,
                     experiment=EXPERIMENT,
                 )
-                r.df.to_json(path)
+                save_df(r.df, path)
                 log.info(
-                    f"[{r.clsf.name}@{r.dataset_name}] {r.method_name} on {r.acc_name} done [{timestamp(r.t_ave)}]"
+                    f"[{r.h_info.name}@{r.dataset_name}] {r.method_name} on {r.acc_name} done [{timestamp(r.t_train, r.t_test_ave)}]"
                 )
             elif r.old:
-                log.info(f"[{r.clsf.name}@{r.dataset_name}] {r.method_name} on {r.acc_name} exists, skipping")
+                log.info(f"[{r.h_info.name}@{r.dataset_name}] {r.method_name} on {r.acc_name} exists, skipping")
             elif r.error:
                 log.warning(
-                    f"[{r.clsf.name}@{r.dataset_name}] {r.method_name}: {r.acc_name} gave error '{r.err}' - skipping"
+                    f"[{r.h_info.name}@{r.dataset_name}] {r.method_name}: {r.acc_name} gave error '{r.err}' - skipping"
                 )
 
 
