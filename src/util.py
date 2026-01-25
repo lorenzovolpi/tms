@@ -99,36 +99,28 @@ def split_validation(V: LabelledCollection, ratio=0.6, repeats=100, sample_size=
     return v_train, val_prot
 
 
-def local_path(dataset_name, cls_name, method_name, acc_name, experiment=None, format="parquet"):
+def local_path(dataset_name, cls_name, method_name, acc_name, experiment=None, problem=None, format="parquet"):
+    problem = env.PROBLEM if problem is None else problem
     base_dir = env.root_dir if experiment is None else os.path.join(env.root_dir, experiment)
-    parent_dir = os.path.join(base_dir, env.PROBLEM, acc_name, dataset_name, method_name)
+    parent_dir = os.path.join(base_dir, problem, acc_name, dataset_name, method_name)
     os.makedirs(parent_dir, exist_ok=True)
     return os.path.join(parent_dir, f"{cls_name}.{format}")
 
 
-def all_exist_pre_check(dataset_name: str, h_name: str, method_names: list[str], acc_names: list[str], experiment: str):
-    exists = True
-    for acc_name, method_name in IT.product(acc_names, method_names):
-        if not os.path.exists(local_path(dataset_name, h_name, method_name, acc_name, experiment=experiment)):
-            exists = False
-            break
-    return exists
+# def all_results_exist(dataset_name: str, h_name: str, method_names: list[str], acc_names: list[str], experiment: str):
+#     exists = True
+#     for acc_name, method_name in IT.product(acc_names, method_names):
+#         if not os.path.exists(local_path(dataset_name, h_name, method_name, acc_name, experiment=experiment)):
+#             exists = False
+#             break
+#     return exists
 
 
-def save_df(df: pd.DataFrame, path: str):
-    # df.to_json(path)
-    df.to_parquet(path, compression="zstd")
-
-
-def load_df(path: str):
-    # return pd.read_json(path)
-    return pd.read_parquet(path)
-
-
-def all_exist_pre_check(dataset_name, cls_name, method_names, acc_names, experiment=None):
+def all_results_exist(dataset_name, cls_name, method_names, acc_names, experiment=None, problem=None):
+    problem = env.PROBLEM if problem is None else problem
     all_exist = True
     for method, acc in IT.product(method_names, acc_names):
-        path = local_path(dataset_name, cls_name, method, acc, experiment=experiment)
+        path = local_path(dataset_name, cls_name, method, acc, experiment=experiment, problem=problem)
         all_exist = os.path.exists(path)
         if not all_exist:
             break
@@ -164,8 +156,3 @@ def sort_datasets_by_size(dataset_names: list[str], descending=True):
     datasets = [(d, get_dataset_size(d)) for d in dataset_names]
     datasets.sort(key=(lambda d: d[1]), reverse=descending)
     return [d for (d, _) in datasets]
-
-
-def gen_method_df(df_len, **data):
-    data = data | {k: [v] * df_len for k, v in data.items() if not isinstance(v, list)}
-    return pd.DataFrame.from_dict(data, orient="columns")
