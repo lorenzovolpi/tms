@@ -1,5 +1,5 @@
 from time import time
-from typing import override
+from typing import Callable, Self, override
 
 import numpy as np
 from cap.utils.commons import contingency_table
@@ -11,21 +11,24 @@ from method.base import ModelSelectionMethod
 
 
 class IMS(ModelSelectionMethod):
-    @override
-    def rank(self, h: PreTrainedClassifier, val: LabelledCollection, test_protocol: AbstractStochasticSeededProtocol):
-        n_test_samples = test_protocol.total()
-        val_posteriors = h.predict_proba(val.X)
-        tinit = time()
-
+    def fit(
+        self,
+        val: LabelledCollection,
+        val_posteriors: np.ndarray,
+        test_protocol: AbstractStochasticSeededProtocol,
+        test_prot_posteriors: list[np.ndarray],
+    ) -> Self:
+        n_classes = val.n_classes
+        self.n_test_samples = test_protocol.total()
         y = val.y
         y_hat = np.argmax(val_posteriors, axis=1)
-        ct = contingency_table(y, y_hat, self.D.n_classes)
-        val_acc = self.acc(ct)
-        ranking_vals = np.full(n_test_samples, val_acc).tolist()
+        ct = contingency_table(y, y_hat, n_classes)
+        self._ct = ct
+        return self
 
-        t_ave = (time() - tinit) / n_test_samples
+    @override
+    def rank(self, acc: Callable[[np.ndarray], float]) -> list[float]:
+        val_acc = acc(self._ct)
+        ranking_vals = np.full(self.n_test_samples, val_acc).tolist()
 
-        return dict(
-            ranking_vals=ranking_vals,
-            t_ave=t_ave,
-        )
+        return ranking_vals

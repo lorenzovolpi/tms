@@ -1,58 +1,41 @@
-from abc import abstractmethod
-from time import time
-from typing import Callable, Literal, override
+from typing import Callable, Literal, Self, override
 
 import cap
 import cap.models.cont_table as cont_table
 import cap.models.direct as direct
 import numpy as np
-from cap.models.base import CAP
 from quapy.data import LabelledCollection
 from quapy.method.aggregative import KDEyML
 from quapy.protocol import AbstractStochasticSeededProtocol
 from sklearn.neural_network import MLPClassifier
 
-from data import PreTrainedClassifier
 from method.base import ModelSelectionMethod, NeedsValidationProtocol
 
 
 class TMS(ModelSelectionMethod): ...
 
 
-class TMS_CAP(TMS):
+class LEAP(TMS):
     @override
-    def rank(self, h: PreTrainedClassifier, val: LabelledCollection, test_protocol: AbstractStochasticSeededProtocol):
-        tinit = time()
+    def fit(
+        self,
+        val: LabelledCollection,
+        val_posteriors: np.ndarray,
+        test_protocol: AbstractStochasticSeededProtocol,
+        test_prot_posteriors: list[np.ndarray],
+    ) -> Self:
+        self.model = cont_table.O_LEAP(self.acc, KDEyML(MLPClassifier())).fit(val, val_posteriors)
+        self._cts = self.model._batch_predict_ct(test_protocol, test_prot_posteriors)
+        return self
 
-        n_test_samples = test_protocol.total()
-        val_posteriors = h.predict_proba(val.X)
-        model = self.get_cap_model(self.acc, val, val_posteriors)
-        test_prot_posteriors = [h.predict_proba(Ui.X) for Ui in test_protocol()]
-        ranking_vals = self.get_ranking_vals(model, test_protocol, test_prot_posteriors)
-
-        t_ave = (time() - tinit) / n_test_samples
-
-        return dict(
-            ranking_vals=ranking_vals,
-            t_ave=t_ave,
-        )
-
-    @abstractmethod
-    def get_cap_model(self, h: PreTrainedClassifier, val: LabelledCollection, val_posteriors: np.ndarray): ...
-
-    def get_ranking_vals(
-        self, model: CAP, test_protocol: AbstractStochasticSeededProtocol, test_prot_posteriors: np.ndarray
-    ):
-        return model.batch_predict(test_protocol, test_prot_posteriors)
-
-
-class LEAP(TMS_CAP):
     @override
-    def get_cap_model(self, h: PreTrainedClassifier, val: LabelledCollection, val_posteriors: np.ndarray):
-        return cont_table.O_LEAP(self.acc, KDEyML(MLPClassifier())).fit(val, val_posteriors)
+    def rank(self, acc: Callable[[np.ndarray], float]) -> list[float]:
+        self.model.acc_fn = acc
+        ranking_vals = [acc(ct) for ct in self._cts]
+        return ranking_vals
 
 
-class RQBS(TMS_CAP):
+class RQBS(TMS):
     """
     Reverse Quantification-Based Sampling
     implemented using the CAP method
@@ -60,7 +43,7 @@ class RQBS(TMS_CAP):
 
     def __init__(
         self,
-        acc: Callable,
+        acc: Callable[[np.ndarray], float],
         n_vsamples: int = 100,
         sample_size: int = None,
         aggr: Literal["mean", "median"] = "median",
@@ -73,14 +56,32 @@ class RQBS(TMS_CAP):
         )
 
     @override
-    def get_cap_model(self, h: PreTrainedClassifier, val: LabelledCollection, val_posteriors: np.ndarray):
-        return direct.RQBS(self.acc, KDEyML(MLPClassifier()), **self.rqbs_params).fit(val, val_posteriors)
+    def fit(
+        self,
+        val: LabelledCollection,
+        val_posteriors: np.ndarray,
+        test_protocol: AbstractStochasticSeededProtocol,
+        test_prot_posteriors: list[np.ndarray],
+    ) -> Self:
+        self.model = direct.RQBS(self.acc, KDEyML(MLPClassifier()), **self.rqbs_params).fit(val, val_posteriors)
+        self.tp_val_sample_cts = [self.model._predict_val_sample_cts(Ui.X) for Ui in test_protocol()]
+        return self
+
+    @override
+    def rank(self, acc: Callable[[np.ndarray], float]) -> list[float]:
+        self.model.acc = acc
+        ranking_vals = []
+        for vs_cts in self.tp_val_sample_cts:
+            vs_accs = self.model._predict_from_val_cts(vs_cts)
+            ranking_vals.append(self.model.aggr_fun(vs_accs))
+
+        return ranking_vals
 
 
-class PrediQuant(TMS_CAP, NeedsValidationProtocol):
+class PrediQuant(TMS, NeedsValidationProtocol):
     def __init__(
         self,
-        acc: Callable,
+        acc: Callable[[np.ndarray], float],
         alpha=0.3,
         alpha_rate=1.2,
         sample_size: int = None,
@@ -97,21 +98,53 @@ class PrediQuant(TMS_CAP, NeedsValidationProtocol):
         )
 
     @override
-    def get_cap_model(self, h: PreTrainedClassifier, val: LabelledCollection, val_posteriors: np.ndarray):
-        return direct.PrediQuant(
+    def fit(
+        self,
+        val: LabelledCollection,
+        val_posteriors: np.ndarray,
+        test_protocol: AbstractStochasticSeededProtocol,
+        test_prot_posteriors: list[np.ndarray],
+    ) -> Self:
+        self.model = direct.PrediQuant(
             acc=self.acc,
-            quantifier=KDEyML(self.clsf.h),
+            quantifier=KDEyML(MLPClassifier()),
             protocol=self.val_protocol,
-            prot_posteriors=self.get_val_prot_posteriors(h),
+            prot_posteriors=self.val_prot_posteriors,
             **self.prediq_params,
         ).fit(val, val_posteriors)
+        self.tp_test_priors = [self.model._predict_test_priors(Ui.X) for Ui in test_protocol()]
+        return self
 
-
-class DoC(TMS_CAP, NeedsValidationProtocol):
     @override
-    def get_cap_model(self, h: PreTrainedClassifier, val: LabelledCollection, val_posteriors: np.ndarray):
-        return direct.DoC(
-            acc_fn=self.acc,
+    def rank(self, acc: Callable[[np.ndarray], float]) -> list[float]:
+        self.model.acc = acc
+        ranking_vals = []
+        for priors in self.tp_test_priors:
+            ranking_vals.append(self.model._predict_from_test_priors(priors))
+
+        return ranking_vals
+
+
+class DoC(TMS, NeedsValidationProtocol):
+    @override
+    def fit(
+        self,
+        val: LabelledCollection,
+        val_posteriors: np.ndarray,
+        test_protocol: AbstractStochasticSeededProtocol,
+        test_prot_posteriors: list[np.ndarray],
+    ) -> Self:
+        self.val = val
+        self.val_posteriors = val_posteriors
+        self.test_protocol = test_protocol
+        self.test_prot_posteriors = test_prot_posteriors
+
+    @override
+    def rank(self, acc: Callable[[np.ndarray], float]) -> list[float]:
+        model = direct.DoC(
+            acc_fn=acc,
             protocol=self.val_protocol,
-            prot_posteriors=self.get_val_prot_posteriors(h),
-        ).fit(val, val_posteriors)
+            prot_posteriors=self.val_prot_posteriors,
+        ).fit(self.val, self.val_posteriors)
+        ranking_vals = model.batch_predict(self.test_protocol, self.test_prot_posteriors)
+        return ranking_vals

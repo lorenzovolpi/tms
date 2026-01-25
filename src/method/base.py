@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import Callable
 
+import numpy as np
 from quapy.data import LabelledCollection
 from quapy.protocol import AbstractStochasticSeededProtocol
 
@@ -8,13 +9,20 @@ from data import PreTrainedClassifier
 
 
 class ModelSelectionMethod(ABC):
-    def __init__(self, acc: Callable):
+    def __init__(self, acc) -> None:
         self.acc = acc
 
     @abstractmethod
-    def rank(
-        self, h: PreTrainedClassifier, val: LabelledCollection, test_protocol: AbstractStochasticSeededProtocol
+    def fit(
+        self,
+        val: LabelledCollection,
+        val_posteriors: np.ndarray,
+        test_protocol: AbstractStochasticSeededProtocol,
+        test_prot_posteriors: list[np.ndarray],
     ): ...
+
+    @abstractmethod
+    def rank(self, acc: Callable[[np.ndarray], float]) -> list[float]: ...
 
     def empty_rank(self):
         return dict(
@@ -28,8 +36,8 @@ class NeedsValidationProtocol:
     Interface that indicates that the model selection method requires a validation protocol
     """
 
-    def set_validation_protocol(self, val_protocol: AbstractStochasticSeededProtocol):
+    def set_validation_protocol(
+        self, val_protocol: AbstractStochasticSeededProtocol, val_prot_posteriors: list[np.ndarray]
+    ):
         self.val_protocol = val_protocol
-
-    def get_val_prot_posteriors(self, h: PreTrainedClassifier):
-        return [h.predict_proba(Ui.X) for Ui in self.val_protocol()]
+        self.val_prot_posteriors = val_prot_posteriors
