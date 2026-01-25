@@ -180,46 +180,6 @@ class DatasetBundle:
 
         return self
 
-    #
-    # def get_true_accs(self, accs: List[Tuple[str, Callable[[np.ndarray, np.ndarray], float]]]):
-    #     # compute true accs for h on dataset
-    #     self.true_accs = {} if self.true_accs is None else self.true_accs
-    #     missing_accs = [(acc_name, acc_fn) for acc_name, acc_fn in accs if acc_name not in self.true_accs]
-    #     for acc_name, acc_fn in missing_accs:
-    #         self.true_accs[acc_name] = [
-    #             true_acc_from_posteriors(acc_fn, Ui, Ui_P)
-    #             for Ui, Ui_P in IT.zip_longest(self.test_prot(), self.test_prot_posteriors)
-    #         ]
-    #
-    #     if len(missing_accs) > 0:
-    #         self.updated = True
-    #
-    #     return self
-    #
-    # @classmethod
-    # def mock(cls, dataset_name="mock"):
-    #     return DatasetBundle(dataset_name, None, None, None, test_prot=lambda: [])
-    #
-    # @property
-    # def empty(self):
-    #     return self.V is None or self.U is None
-    #
-    # def dump(self):
-    #     fields_to_dump: list[str] = [
-    #         "V_posteriors",
-    #         "V1_posteriors",
-    #         "V2_prot_posteriors",
-    #         "test_prot_posteriors",
-    #         "test_prot_y_hat",
-    #         "test_prot_true_cts",
-    #         "true_accs",
-    #     ]
-    #     data = {f: getattr(self, f) for f in fields_to_dump}
-    #     return data
-    #
-    # def load(self, data: dict):
-    #     return replace(self, **data)
-
 
 @dataclass
 class ClassifierDatasetBundle:
