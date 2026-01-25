@@ -53,6 +53,8 @@ class SVMlight(BaseEstimator, ClassifierMixin):
         traindata_path = join(self.tmpdir.name, "train.dat")
         transductions_path = join(self.tmpdir.name, "transd_labels.dat")
 
+        self.n_classes = np.unique(y).shape[0]
+
         y = y * 2 - 1  # re-code from neg=0 pos=1 --> neg=-1 pos=+1 (0 is left for unlabeled documents for transduction)
         if self.is_transductive:
             if issparse(X) and issparse(self.transduction):
@@ -116,7 +118,7 @@ class SVMlight(BaseEstimator, ClassifierMixin):
         Required for compatibility reasons with the models in the cap-ml library.
         """
         y_hat = self.predict(X, y=y)
-        return one_hot(y_hat)
+        return one_hot(y_hat, n_classes=self.n_classes)
 
     def score(self, X, y):
         y_ = self.predict(X)
