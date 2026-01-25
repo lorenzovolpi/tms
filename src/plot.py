@@ -8,7 +8,7 @@ import seaborn as sns
 from cap.plot.utils import save_figure
 
 import env
-from config import get_acc_names, get_all_dataset_names
+from config import get_acc_names, get_existing_dataset_names
 from results import Results
 from util import decorate_dataset
 
@@ -71,7 +71,7 @@ def plots(experiment: Literal["transd", "hoptim"]):
         return
 
     accs = get_acc_names()
-    datasets = get_all_dataset_names()
+    datasets = get_existing_dataset_names()()
     methods = [
         "oracle",
         "Naive-LR",

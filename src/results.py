@@ -1,22 +1,60 @@
-import collections
 import itertools as IT
 import os
 from abc import ABC
 from glob import glob
+from math import sqrt
 from pathlib import Path
-from typing import Any, Iterable, Literal
+from typing import Any, Iterable, Literal, Self, TypeAlias
 
 import numpy as np
 import pandas as pd
 
 import env
 from config import (
+    acc_from_ct,
     get_acc_names,
-    get_classifier_class_names,
     get_classifier_names,
-    get_method_names,
+    get_evaluation_acc,
+    get_selection_acc,
 )
-from util import load_df
+
+
+def _pack_ct(ct: np.ndarray) -> np.ndarray:
+    return ct.ravel()
+
+
+def _unpack_ct(flat: np.ndarray) -> np.ndarray:
+    n = int(sqrt(len(flat)))
+    return flat.reshape((n, n))
+
+
+class ResultsDataFrame(pd.DataFrame):
+    @property
+    def _constructor(self):
+        return ResultsDataFrame
+
+    @classmethod
+    def from_df(cls, df: pd.DataFrame) -> Self:
+        return cls(df.copy())
+
+    @classmethod
+    def from_records(cls, len: int, **data) -> Self:
+        _data = data | {k: [v] * len for k, v in data.items() if not isinstance(v, list)}
+        _df = pd.DataFrame.from_dict(_data, orient="columns")
+        return cls.from_df(_df)
+
+    def save_result(self, path: str):
+        self["true_cts"] = self["true_cts"].apply(_pack_ct)
+        self.to_parquet(path, compression="zstd")
+
+    @classmethod
+    def load_result(cls, path: str) -> Self:
+        df = pd.read_parquet(path)
+        df["true_cts"] = df["true_cts"].apply(_unpack_ct)
+        return df
+
+
+RDF: TypeAlias = ResultsDataFrame
 
 
 class Results(ABC):
@@ -35,11 +73,11 @@ class Results(ABC):
         problem = env.PROBLEM if set_problem else "*"
         dfs = []
         for path in glob(
-            os.path.join(base_dir, problem, acc_name, dataset, "**", "*.json"),
+            os.path.join(base_dir, problem, acc_name, dataset, "**", "*.parquet"),
             recursive=True,
         ):
             if filter_methods is None or Path(path).parent.name in filter_methods:
-                dfs.append(load_df(path))
+                dfs.append(RDF.load_result(path))
 
         return Results(pd.concat(dfs, axis=0))
 
@@ -163,6 +201,7 @@ class Results(ABC):
         dfs = []
         for acc in accs:
             odf = self.df.loc[self.df["acc_name"] == acc, :].groupby(["dataset", "uids", "classifier"]).first()
+            odf["true_accs"] = odf["true_cts"].apply(lambda ct: acc_from_ct(acc, ct))
             best_idx = odf.groupby(["uids", "dataset"])["true_accs"].idxmax()
             odf = odf.loc[best_idx, :].reset_index(drop=False)
             odf["method"] = ["oracle"] * len(odf)
@@ -170,26 +209,12 @@ class Results(ABC):
 
         return Results(pd.concat(dfs, axis=0))
 
-    def default_classifier_ms(self) -> "Results":
-        # TODO: fix to select only a specified classifier
-        accs = get_acc_names()
-        classifiers = get_classifier_names()
-
+    def default_classifier_ms(self, class_name: str) -> "Results":
         dfs = []
-        for acc, classifier in IT.product(accs, classifiers):
-            ndf = (
-                self.df.loc[
-                    (self.df["acc_name"] == acc) & (self.df["classifier"] == classifier),
-                    :,
-                ]
-                .groupby(["dataset", "uids"])
-                .first()
-                .reset_index(drop=False)
-            )
-            if not np.all(ndf["default_c"].to_numpy()):
-                continue
-            ndf["method"] = ndf["classifier"]
-            dfs.append(ndf)
+        ndf = self.df.loc[(self.df["classifier_class"] == class_name) & (self.df["default_c"]), :]
+        ndf = ndf.groupby(["acc_name", "dataset", "uids"]).first().reset_index(drop=False)
+        ndf["method"] = ndf["classifier"]
+        dfs.append(ndf)
 
         return Results(pd.concat(dfs, axis=0))
 
@@ -274,7 +299,7 @@ class Results(ABC):
         new_df[col] = new_df[col].map(mapping).fillna(new_df[col])
         return Results(new_df)
 
-    def apply_to_column(self, col: str, func: callable) -> "Results":
+    def apply_to_column(self, col: str, func: callable, new_col: str | None = None) -> "Results":
         """
         Applies a function to a specified column in the DataFrame.
 
@@ -282,8 +307,9 @@ class Results(ABC):
         :param func: A function to apply to the column values.
         :return: A new Results object with the modified column.
         """
+        new_col = col if new_col is None else new_col
         new_df = self.df.copy()
-        new_df[col] = new_df[col].apply(func)
+        new_df[new_col] = new_df[col].apply(func)
         return Results(new_df)
 
     def unique_column_values(self, col: str) -> Iterable[Any]:

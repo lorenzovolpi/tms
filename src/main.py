@@ -1,4 +1,3 @@
-import itertools as IT
 import os
 from dataclasses import dataclass
 from time import time
@@ -7,7 +6,6 @@ from typing import Iterable
 
 import cap
 import numpy as np
-import pandas as pd
 import quapy as qp
 from cap.models.cont_table import LEAP
 from cap.utils.commons import get_shift, parallel
@@ -22,13 +20,12 @@ from config import (
 from data import ClassifierInfo, load_info, load_info_paths
 from env import PROJECT
 from method.base import ModelSelectionMethod, NeedsValidationProtocol
+from results import RDF
 from util import (
-    all_exist_pre_check,
-    gen_method_df,
+    all_results_exist,
     get_logger,
     get_plain_prev,
     local_path,
-    save_df,
     timestamp,
 )
 
@@ -55,7 +52,7 @@ class EXP:
     dataset_name: str
     acc_name: str
     method_name: str
-    df: pd.DataFrame = None
+    df: RDF = None
     t_train: float = None
     t_test_ave: float = None
     err: Exception = None
@@ -111,7 +108,8 @@ def exp_protocol(args: tuple[str, str, ModelSelectionMethod]) -> EXP:
     val_prev = get_plain_prev(val.prevalence())
     df_len = D.test_prot.total()
     test_shift = get_shift(np.array([Ui.prevalence() for Ui in D.test_prot()]), D.L_prevalence).tolist()
-    tp_true_cts = [ct.ravel() for ct in D.test_prot_true_cts]
+    # tp_true_cts = [ct.ravel() for ct in D.test_prot_true_cts]
+    tp_true_cts = D.test_prot_true_cts
 
     for acc_name, acc_fn in gen_acc_measure():
         path = local_path(D.name, h_info.full_name, method_name, acc_name, experiment=EXPERIMENT)
@@ -129,7 +127,7 @@ def exp_protocol(args: tuple[str, str, ModelSelectionMethod]) -> EXP:
             continue
 
         # df_len = len(estim_accs)
-        method_df = gen_method_df(
+        method_df = RDF.from_records(
             df_len,
             uids=np.arange(df_len).tolist(),
             shifts=test_shift,
@@ -171,7 +169,7 @@ def experiments():
     filtered_paths = []
     for path in info_paths:
         D, h_info = load_info(path, fast=True)
-        if not all_exist_pre_check(D.name, h_info.full_name, get_method_names(), get_acc_names(), EXPERIMENT):
+        if not all_results_exist(D.name, h_info.full_name, get_method_names(), get_acc_names(), EXPERIMENT):
             filtered_paths.append(path)
         else:
             log.info(f"[{h_info.name}@{D.name}] all results exist, skipping")
@@ -198,7 +196,7 @@ def experiments():
                     r.acc_name,
                     experiment=EXPERIMENT,
                 )
-                save_df(r.df, path)
+                r.df.save_result(path)
                 log.info(
                     f"[{r.h_info.name}@{r.dataset_name}] {r.method_name} on {r.acc_name} done [{timestamp(r.t_train, r.t_test_ave)}]"
                 )

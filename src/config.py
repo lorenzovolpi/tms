@@ -1,5 +1,6 @@
 import itertools as IT
-from typing import Iterable, Tuple
+from collections import defaultdict
+from typing import Callable, Iterable, Literal, Tuple
 
 import numpy as np
 from cap.data.datasets import fetch_UCIBinaryDataset, fetch_UCIMulticlassDataset
@@ -14,11 +15,11 @@ from sklearn.neural_network import MLPClassifier as MLP
 from sklearn.svm import SVC
 
 import env
-from data import ClassifierInfo, DatasetBundle
+from data import ClassifierInfo, DatasetBundle, load_info, load_info_paths
 from method.ims import IMS
 from method.tms import LEAP, RQBS, DoC, PrediQuant
 from svmlight import SVMlight
-from util import sort_datasets_by_size
+from util import all_results_exist, sort_datasets_by_size
 
 
 def kdey():
@@ -139,11 +140,38 @@ def gen_datasets(
             yield dn, coll, dval
 
 
+def get_acc_names():
+    return ["vanilla_accuracy", "macro-F1", "macro-K"]
+
+
+def get_selection_acc(name: str, multiclass: bool) -> Callable:
+    return {
+        "vanilla_accuracy": vanilla_acc,
+        "macro-F1": (smooth(f1_macro) if multiclass else smooth(f1)),
+        "macro-K": (k_macro if multiclass else k_bin),
+    }[name]
+
+
+def get_evaluation_acc(name: str, multiclass: bool) -> Callable:
+    return {
+        "vanilla_accuracy": vanilla_acc,
+        "macro-F1": (f1_macro if multiclass else f1),
+        "macro-K": (k_macro if multiclass else k_bin),
+    }[name]
+
+
+def acc_from_ct(acc_name: str, ct: np.ndarray, type: Literal["selection", "evaluation"] = "selection") -> float:
+    n_classes = ct.shape[0]
+    if type == "selection":
+        return get_selection_acc(acc_name, n_classes > 2)(ct)
+    elif type == "evaluation":
+        return get_evaluation_acc(acc_name, n_classes > 2)(ct)
+
+
 def gen_acc_measure():
     multiclass = env.PROBLEM == "multiclass"
-    yield "vanilla_accuracy", vanilla_acc
-    yield "macro-F1", (smooth(f1_macro) if multiclass else smooth(f1))
-    yield "macro-K", (k_macro if multiclass else k_bin)
+    for acc in get_acc_names():
+        yield acc, get_selection_acc(acc, multiclass)
 
 
 def gen_methods():
@@ -170,19 +198,20 @@ def get_dataset_names():
     return [name for name, _, _ in gen_datasets(only_names=True)]
 
 
-def get_all_dataset_names():
-    _orig_prob = env.PROBLEM
-    all_datasets = []
-    for _prob in env._valid_problems:
-        env.PROBLEM = _prob
-        all_datasets.extend(get_dataset_names())
-    env.PROBLEM = _orig_prob
+def get_existing_dataset_names(experiment: str, problem: Literal["binary", "multiclass"] | None = None):
+    info_paths = load_info_paths(problem=problem)
+    dataset_h_map = defaultdict(lambda: True)
+    for path in info_paths:
+        D, h_info = load_info(path, fast=True)
+        # if not dataset_h_map[D.name]:
+        #     continue
+        problem = "multiclass" if D.n_classes > 2 else "binary"
+        dataset_h_map[D.name] = dataset_h_map[D.name] and all_results_exist(
+            D.name, h_info.full_name, get_method_names(), get_acc_names(), experiment, problem
+        )
 
-    return sort_datasets_by_size(all_datasets)
-
-
-def get_acc_names():
-    return [acc_name for acc_name, _ in gen_acc_measure()]
+    dataset_names = [d for d, all_exist in dataset_h_map.items() if all_exist]
+    return sort_datasets_by_size(dataset_names)
 
 
 def get_method_names():

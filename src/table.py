@@ -8,7 +8,7 @@ from pandatex import Format, Table
 
 import env
 import main
-from config import get_acc_names, get_all_dataset_names
+from config import acc_from_ct, get_acc_names, get_existing_dataset_names
 from results import Results
 from util import decorate_dataset
 
@@ -25,6 +25,8 @@ method_map = {
     "Naive": "\\imsall",
     "TMS_LEAP": "\\leapall",
     "TMS_RQBS": "\\rqbsall",
+    "TMS_PrediQuant": "\\pqall",
+    "TMS_DoC": "\\docall",
 }
 
 dataset_map = {
@@ -37,7 +39,7 @@ dataset_map = {
 
 def ms_selection():
     return {
-        "oracle": True,
+        "oracle": False,
         "default": [],
         "method": [
             ("IMS", "LR"),
@@ -47,6 +49,8 @@ def ms_selection():
             ("IMS", None),
             ("TMS_LEAP", None),
             ("TMS_RQBS", None),
+            ("TMS_PrediQuant", None),
+            ("TMS_DoC", None),
         ],
     }
 
@@ -66,7 +70,7 @@ def gen_tables():
 
     tbls = []
     accs = get_acc_names()
-    datasets = get_all_dataset_names()
+    datasets = get_existing_dataset_names(experiment)
     for acc in accs:
         name = f"{experiment}_{acc}"
         tbl = Table(name=name)
@@ -90,6 +94,7 @@ def gen_tables():
                 .map_column_values("method", method_map)
                 .map_column_values("dataset", dataset_map)
                 .apply_to_column("dataset", decorate_dataset)
+                .apply_to_column("true_cts", lambda ct: acc_from_ct(acc, ct), new_col="true_accs")
             )
             _methods = [method_map.get(m, m) for m in res.unique_column_values("method")]
             _dataset = decorate_dataset(dataset_map.get(dataset, dataset))
@@ -120,6 +125,8 @@ def gen_pdf():
     new_commands = [
         "\\newcommand{\\leapall}{LEAP-All}",
         "\\newcommand{\\rqbsall}{RQBS-All}",
+        "\\newcommand{\\pqall}{PQ-All}",
+        "\\newcommand{\\docall}{DoC-All}",
         "\\newcommand{\\imsall}{IMS-All}",
         "\\newcommand{\\imslr}{IMS-LR}",
         "\\newcommand{\\imsknn}{IMS-$k$NN}",
@@ -131,8 +138,8 @@ def gen_pdf():
         "\\newcommand{\\nomstsvm}{$\\emptyset$-TSVM}",
         "\\newcommand{\\nomsmlp}{$\\emptyset$-MLP}",
     ]
-    column_alignment = [1, 5, 2], "c"
-    additional_headers = [("oracle", 1), ("IMS", 5), ("TMS", 2)]
+    column_alignment = [5, 4], "c"
+    additional_headers = [("IMS", 5), ("TMS", 4)]
     Table.LatexPDF(
         pdf_path,
         tables=tbls,
