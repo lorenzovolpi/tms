@@ -23,6 +23,7 @@ from data import ClassifierInfo, load_info, load_info_paths
 from env import PROJECT
 from method.base import ModelSelectionMethod, NeedsValidationProtocol
 from util import (
+    all_exist_pre_check,
     gen_method_df,
     get_logger,
     get_plain_prev,
@@ -170,12 +171,7 @@ def experiments():
     filtered_paths = []
     for path in info_paths:
         D, h_info = load_info(path, fast=True)
-        exists = True
-        for acc_name, method_name in IT.product(get_acc_names(), get_method_names()):
-            if not os.path.exists(local_path(D.name, h_info.full_name, method_name, acc_name, experiment=EXPERIMENT)):
-                exists = False
-                break
-        if not exists:
+        if not all_exist_pre_check(D.name, h_info.full_name, get_method_names(), get_acc_names(), EXPERIMENT):
             filtered_paths.append(path)
         else:
             log.info(f"[{h_info.name}@{D.name}] all results exist, skipping")

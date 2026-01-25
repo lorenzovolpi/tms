@@ -106,6 +106,15 @@ def local_path(dataset_name, cls_name, method_name, acc_name, experiment=None, f
     return os.path.join(parent_dir, f"{cls_name}.{format}")
 
 
+def all_exist_pre_check(dataset_name: str, h_name: str, method_names: list[str], acc_names: list[str], experiment: str):
+    exists = True
+    for acc_name, method_name in IT.product(acc_names, method_names):
+        if not os.path.exists(local_path(dataset_name, h_name, method_name, acc_name, experiment=experiment)):
+            exists = False
+            break
+    return exists
+
+
 def save_df(df: pd.DataFrame, path: str):
     # df.to_json(path)
     df.to_parquet(path, compression="zstd")
