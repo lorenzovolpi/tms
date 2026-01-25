@@ -12,12 +12,13 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.neural_network import MLPClassifier
 
 import main
-from config import ClsVariant, DatasetBundle
-from data import ClsfDataset
+from config import ClassifierInfo, DatasetBundle
+from data import ClsfDataset, _get_classifier
 from main import EXP, exp_protocol, train_cls
 from method.ims import IMS
 from method.tms import LEAP, RQBS
 from results import Results
+from util import load_df
 
 qp.environ["SAMPLE_SIZE"] = 1000
 main.EXPERIMENT = "tests"
@@ -47,7 +48,8 @@ def gen_classifiers(n_classes):
         _par_combos = IT.product(*list(param_grid.values()))
         for _combo in _par_combos:
             _params = dict(zip(_par_names, _combo))
-            yield ClsVariant(class_name=name, h=base, params=_params)
+            h = _get_classifier(base, _params)
+            yield h, ClassifierInfo(class_name=name, h=base, params=_params)
 
 
 def gen_datasets():
@@ -65,14 +67,14 @@ def gen_datasets():
         yield dn, fetch_UCIMulticlassDataset(dn)
 
 
-def gen_methods(clsf: ClsVariant, D: DatasetBundle):
+def gen_methods(clsf: ClassifierInfo, D: DatasetBundle):
     # yield "IMS", IMS(clsf, D), D.V, D.V_posteriors
     yield "TMS_LEAP", LEAP(clsf, D), D.V, D.V_posteriors
     yield "TMS_RQBS", RQBS(clsf, D), D.V, D.V_posteriors
 
 
 def get_method_names():
-    mock_clsf = ClsVariant.mock()
+    mock_clsf = ClassifierInfo.mock()
     mock_D = DatasetBundle.mock()
     return [m for m, _, _, _ in gen_methods(mock_clsf, mock_D)]
 
@@ -115,14 +117,14 @@ if __name__ == "__main__":
                 if r.ok:
                     results.append(r)
                 elif r.error:
-                    print(f"{r.clsf.name}@{r.dataset_name}:{r.err}")
+                    print(f"{r.h_info.name}@{r.dataset_name}:{r.err}")
 
         dfs = [r.df for r in results]
         res = Results(pd.concat(dfs, axis=0))
         res.df.index = range(len(res.df))
         res.df.to_json(out_json)
 
-    res = Results(pd.read_json(out_json))
+    res = Results(load_df(out_json))
     res = Results.concat(
         [
             res.oracle_ms(),
