@@ -17,8 +17,7 @@ from data import ClsfDataset, _get_classifier
 from main import EXP, exp_protocol, train_cls
 from method.ims import IMS
 from method.tms import LEAP, RQBS
-from results import Results
-from util import load_df
+from results import RDF, Results
 
 qp.environ["SAMPLE_SIZE"] = 1000
 main.EXPERIMENT = "tests"
@@ -124,7 +123,7 @@ if __name__ == "__main__":
         res.df.index = range(len(res.df))
         res.df.to_json(out_json)
 
-    res = Results(load_df(out_json))
+    res = Results(RDF.load_result(out_json))
     res = Results.concat(
         [
             res.oracle_ms(),
