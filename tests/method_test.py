@@ -12,7 +12,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.neural_network import MLPClassifier
 
 import main
-from config import ClassifierInfo, DatasetBundle
+from config import ClassifierInfo, DatasetInfo
 from data import ClsfDataset, _get_classifier
 from main import EXP, exp_protocol, train_cls
 from method.ims import IMS
@@ -66,7 +66,7 @@ def gen_datasets():
         yield dn, fetch_UCIMulticlassDataset(dn)
 
 
-def gen_methods(clsf: ClassifierInfo, D: DatasetBundle):
+def gen_methods(clsf: ClassifierInfo, D: DatasetInfo):
     # yield "IMS", IMS(clsf, D), D.V, D.V_posteriors
     yield "TMS_LEAP", LEAP(clsf, D), D.V, D.V_posteriors
     yield "TMS_RQBS", RQBS(clsf, D), D.V, D.V_posteriors
@@ -74,7 +74,7 @@ def gen_methods(clsf: ClassifierInfo, D: DatasetBundle):
 
 def get_method_names():
     mock_clsf = ClassifierInfo.mock()
-    mock_D = DatasetBundle.mock()
+    mock_D = DatasetInfo.mock()
     return [m for m, _, _, _ in gen_methods(mock_clsf, mock_D)]
 
 
