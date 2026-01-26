@@ -189,7 +189,7 @@ class PretainInfo:
     @property
     def info_path(self):
         stem = self._get_stem()
-        return os.path.join(BASEDIR, self.domain, f"{stem}_info.json")
+        return os.path.join(BASEDIR, self.domain, f"{stem}_info.pkl")
 
     @property
     def posteriors_path(self):
@@ -201,33 +201,37 @@ class PretainInfo:
         return os.path.exists(self.info_path)
 
     def dump(self, V_posteriors: np.ndarray, U_posteriors: np.ndarray):
-        obj = dict(
-            domain=self.domain,
-            dataset_name=self.d_info.name,
-            dataset_collection=self.d_info.collection,
-            h_class_name=self.h_info.class_name,
-            h_params=self.h_info.params,
-            h_default=self.h_info.default,
-            h_ms_ignore=self.h_info.ms_ignore,
-        )
-        with open(self.info_path, "w") as f:
-            json.dump(obj, f)
+        os.makedirs(os.path.dirname(self.info_path), exist_ok=True)
+        # obj = dict(
+        #     domain=self.domain,
+        #     dataset_name=self.d_info.name,
+        #     dataset_collection=self.d_info.collection,
+        #     h_class_name=self.h_info.class_name,
+        #     h_params=self.h_info.params,
+        #     h_default=self.h_info.default,
+        #     h_ms_ignore=self.h_info.ms_ignore,
+        # )
+        # with open(self.info_path, "w") as f:
+        #     json.dump(obj, f)
+        with open(self.info_path, "wb") as f:
+            pickle.dump(self, f)
         np.savez_compressed(self.posteriors_path, V_posteriors=V_posteriors, U_posteriors=U_posteriors)
 
     @classmethod
     def load(cls, path: str, fast: bool = False) -> Tuple[DatasetBundle, PreTrainedClassifier, Self] | Self:
-        with open(path, "r") as f:
-            b = json.load(f)
-        h_info = ClassifierInfo(
-            class_name=b["h_class_name"],
-            params=b["h_params"],
-            default=b["h_default"],
-            ms_ignore=b["h_ms_ignore"],
-        )
-        d_info = DatasetInfo(b["dataset_name"], b["dataset_collection"], b["n_classes"])
-        p_info = PretainInfo(b["domain"], d_info, h_info)
+        with open(path, "rb") as f:
+            p_info = pickle.load(f)
+        # h_info = ClassifierInfo(
+        #     class_name=b["h_class_name"],
+        #     params=b["h_params"],
+        #     default=b["h_default"],
+        #     ms_ignore=b["h_ms_ignore"],
+        # )
+        # d_info = DatasetInfo(b["dataset_name"], b["dataset_collection"], b["n_classes"])
+        # p_info = PretainInfo(b["domain"], d_info, h_info)
         if fast:
             return p_info
+        d_info = p_info.d_info
 
         L, V, U = load_from_collection(d_info.collection, d_info.name)
 
@@ -260,3 +264,23 @@ def load_info_paths(domain: str | None = None, problem: Literal["binary", "multi
         paths = [p for p in paths if "_2_info.pkl" not in p]
 
     return paths
+
+
+@dataclass
+class ClassifierDatasetBundle:
+    dataset_name: str
+    dataset_collection: str
+    n_classes: int
+    h_class_name: str
+    h_params: dict
+    h_default: bool
+    h_ms_ignore: bool
+
+    def save(self, path: str):
+        with open(path, "wb") as f:
+            pickle.dump(self, f)
+
+    @classmethod
+    def load(cls, path: str) -> Self:
+        with open(path, "rb") as f:
+            return pickle.load(f)
