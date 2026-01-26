@@ -1,4 +1,3 @@
-import os
 from traceback import print_exception
 from typing import Iterable, Literal, Tuple
 
@@ -9,12 +8,13 @@ from quapy.data import LabelledCollection
 from sklearn.base import BaseEstimator
 
 from config import gen_classifiers, gen_datasets
-from data import BASEDIR, ClassifierDatasetBundle, ClassifierInfo, dump_info, get_info_path
+from data import ClassifierInfo, DatasetInfo, PretainInfo
 from env import PROJECT
 from util import get_logger
 
 EXPERIMENT = "pretrain"
-log = get_logger(id=f"{PROJECT}.{EXPERIMENT}")
+DOMAIN = "classic"
+log = get_logger(id=f"{PROJECT}.{EXPERIMENT}.{DOMAIN}")
 
 BATCH_SIZE = 8
 
@@ -22,29 +22,23 @@ BATCH_SIZE = 8
 class TrainResult:
     def __init__(
         self,
-        dataset_name: str,
-        dataset_coll: str,
-        n_classes: int,
-        h_info: ClassifierInfo,
+        p_info: PretainInfo,
         V_posteriors: np.ndarray,
         U_posteriors: np.ndarray,
         status: Literal["ok", "old"],
     ):
-        self.dataset_name = dataset_name
-        self.dataset_coll = dataset_coll
-        self.n_classes = n_classes
-        self.h_info = h_info
+        self.p_info = p_info
         self.V_posteriors = V_posteriors
         self.U_posteriors = U_posteriors
         self.status = status
 
     @classmethod
-    def ok(cls, dataset_name, dataset_coll, n_classes, h_info, V_posteriors, U_posteriors):
-        return TrainResult(dataset_name, dataset_coll, n_classes, h_info, V_posteriors, U_posteriors, "ok")
+    def ok(cls, p_info: PretainInfo, V_posteriors: np.ndarray, U_posteriors: np.ndarray):
+        return TrainResult(p_info, V_posteriors, U_posteriors, "ok")
 
     @classmethod
-    def old(cls, dataset_name, dataset_coll, n_classes, h_info):
-        return TrainResult(dataset_name, dataset_coll, n_classes, h_info, None, None, "old")
+    def old(cls, p_info: PretainInfo):
+        return TrainResult(p_info, None, None, "old")
 
     @property
     def is_ok(self):
@@ -55,12 +49,8 @@ class TrainResult:
         return self.status == "old"
 
     @property
-    def data(self) -> dict:
+    def posteriors(self) -> dict:
         return dict(
-            dataset_name=self.dataset_name,
-            dataset_collection=self.dataset_coll,
-            n_classes=self.n_classes,
-            h_info=self.h_info,
             V_posteriors=self.V_posteriors,
             U_posteriors=self.U_posteriors,
         )
@@ -78,17 +68,19 @@ def train_variants(
 ) -> list[TrainResult]:
     dataset_name, dataset_coll, L, V, U, h_batch = args
     n_classes = L.n_classes
+    d_info = DatasetInfo(dataset_name, dataset_coll, n_classes)
 
     results = []
     for h, h_info in h_batch:
-        if os.path.exists(get_info_path(dataset_name, n_classes, h_info)):
-            results.append(TrainResult.old(dataset_name, dataset_coll, n_classes, h_info))
+        p_info = PretainInfo(DOMAIN, d_info, h_info)
+        if p_info.exists:
+            results.append(TrainResult.old(p_info))
             continue
 
         h.fit(*L.Xy)
         V_posteriors = h.predict_proba(V.X)
         U_posteriors = h.predict_proba(U.X)
-        results.append(TrainResult.ok(dataset_name, dataset_coll, n_classes, h_info, V_posteriors, U_posteriors))
+        results.append(TrainResult.ok(p_info, V_posteriors, U_posteriors))
 
     return results
 
@@ -121,7 +113,7 @@ def pretrain():
                 log.info(f"Already exists: {r.h_info.name} on {r.dataset_name}, skipping.")
             elif r.is_ok:
                 log.info(f"Pretrained {r.h_info.name} on {r.dataset_name}.")
-                dump_info(**r.data)
+                r.p_info.dump(**r.posteriors)
 
 
 if __name__ == "__main__":
