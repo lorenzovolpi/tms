@@ -15,7 +15,7 @@ from sklearn.neural_network import MLPClassifier as MLP
 from sklearn.svm import SVC
 
 import env
-from data import ClassifierInfo, DatasetBundle, load_info, load_info_paths
+from data import ClassifierInfo, PretainInfo, load_info_paths
 from method.ims import IMS
 from method.tms import LEAP, RQBS, DoC, PrediQuant
 from svmlight import SVMlight
@@ -198,16 +198,17 @@ def get_dataset_names():
     return [name for name, _, _ in gen_datasets(only_names=True)]
 
 
-def get_existing_dataset_names(experiment: str, problem: Literal["binary", "multiclass"] | None = None):
-    info_paths = load_info_paths(problem=problem)
+def get_existing_dataset_names(experiment: str, domain: str, problem: Literal["binary", "multiclass"] | None = None):
+    info_paths = load_info_paths(domain=domain, problem=problem)
     dataset_h_map = defaultdict(lambda: True)
     for path in info_paths:
-        D, h_info = load_info(path, fast=True)
+        p = PretainInfo.load(path, fast=True)
+        d_info, h_info = p.d_info, p.h_info
         # if not dataset_h_map[D.name]:
         #     continue
-        problem = "multiclass" if D.n_classes > 2 else "binary"
-        dataset_h_map[D.name] = dataset_h_map[D.name] and all_results_exist(
-            D.name, h_info.full_name, get_method_names(), get_acc_names(), experiment, problem
+        problem = "multiclass" if d_info.n_classes > 2 else "binary"
+        dataset_h_map[d_info.name] = dataset_h_map[d_info.name] and all_results_exist(
+            d_info.name, h_info.full_name, get_method_names(), get_acc_names(), experiment, problem
         )
 
     dataset_names = [d for d, all_exist in dataset_h_map.items() if all_exist]

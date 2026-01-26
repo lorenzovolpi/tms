@@ -1,4 +1,5 @@
 import hashlib
+import json
 import os
 import pickle
 from abc import ABC
@@ -137,30 +138,25 @@ class ClassifierInfo:
         return self._get_full_name(self.default, self.class_name, self.params)
 
 
+@dataclass
+class DatasetInfo:
+    name: str
+    collection: str
+    n_classes: int
+
+
 class DatasetBundle:
-    def __init__(
-        self,
-        name: str,
-        collection: str,
-        n_classes: int,
-        L_prevalence: np.ndarray = None,
-        V: LabelledCollection = None,
-        U: LabelledCollection = None,
-    ):
-        self.name = name
-        self.collection = collection
-        self.n_classes = n_classes
-        self.L_prevalence: np.ndarray = L_prevalence
+    def __init__(self, L_prevalence: np.ndarray, V: LabelledCollection, U: LabelledCollection):
+        self.L_prevalence = L_prevalence
         self.V = V
-        if U:
-            self.test_prot = UPP(
-                U,
-                repeats=env.NUM_TEST,
-                return_type="labelled_collection",
-                random_state=qp.environ["_R_SEED"],
-            )
-        if V:
-            self.V1, self.V2_prot = split_validation(self.V, random_state=qp.environ["_R_SEED"])
+        self.U = U
+        self.test_prot = UPP(
+            U,
+            repeats=env.NUM_TEST,
+            return_type="labelled_collection",
+            random_state=qp.environ["_R_SEED"],
+        )
+        self.V1, self.V2_prot = split_validation(self.V, random_state=qp.environ["_R_SEED"])
 
     def get_posteriors(self, h: PreTrainedClassifier):
         # precomumpute model posteriors for validation sets
@@ -182,31 +178,67 @@ class DatasetBundle:
 
 
 @dataclass
-class ClassifierDatasetBundle:
-    dataset_name: str
-    dataset_collection: str
-    n_classes: int
-    h_class_name: str
-    h_params: dict
-    h_default: bool
-    h_ms_ignore: bool
+class PretainInfo:
+    domain: str
+    d_info: DatasetInfo
+    h_info: ClassifierInfo
 
-    def save(self, path: str):
-        with open(path, "wb") as f:
-            pickle.dump(self, f)
+    def _get_stem(self):
+        return f"{self.h_info.full_name}_{self.d_info.name}_{self.d_info.n_classes}"
+
+    @property
+    def info_path(self):
+        stem = self._get_stem()
+        return os.path.join(BASEDIR, self.domain, f"{stem}_info.json")
+
+    @property
+    def posteriors_path(self):
+        stem = self._get_stem()
+        return os.path.join(BASEDIR, self.domain, f"{stem}_post.npz")
+
+    @property
+    def exists(self) -> bool:
+        return os.path.exists(self.info_path)
+
+    def dump(self, V_posteriors: np.ndarray, U_posteriors: np.ndarray):
+        obj = dict(
+            domain=self.domain,
+            dataset_name=self.d_info.name,
+            dataset_collection=self.d_info.collection,
+            h_class_name=self.h_info.class_name,
+            h_params=self.h_info.params,
+            h_default=self.h_info.default,
+            h_ms_ignore=self.h_info.ms_ignore,
+        )
+        with open(self.info_path, "w") as f:
+            json.dump(obj, f)
+        np.savez_compressed(self.posteriors_path, V_posteriors=V_posteriors, U_posteriors=U_posteriors)
 
     @classmethod
-    def load(cls, path: str) -> Self:
-        with open(path, "rb") as f:
-            return pickle.load(f)
+    def load(cls, path: str, fast: bool = False) -> Tuple[DatasetBundle, PreTrainedClassifier, Self] | Self:
+        with open(path, "r") as f:
+            b = json.load(f)
+        h_info = ClassifierInfo(
+            class_name=b["h_class_name"],
+            params=b["h_params"],
+            default=b["h_default"],
+            ms_ignore=b["h_ms_ignore"],
+        )
+        d_info = DatasetInfo(b["dataset_name"], b["dataset_collection"], b["n_classes"])
+        p_info = PretainInfo(b["domain"], d_info, h_info)
+        if fast:
+            return p_info
 
+        L, V, U = load_from_collection(d_info.collection, d_info.name)
 
-def get_info_path(dataset_name: str, n_classes: int, h_info: ClassifierInfo):
-    return os.path.join(BASEDIR, f"{h_info.full_name}_{dataset_name}_{n_classes}_info.pkl")
+        post_path = p_info.posteriors_path
+        _npz = np.load(post_path)
+        V_posteriors = _npz["V_posteriors"]
+        U_posteriors = _npz["U_posteriors"]
+        h = PreTrainedClassifier(U_X=U.X, U_posteriors=U_posteriors, V_X=V.X, V_posteriors=V_posteriors)
+        d_bundle = DatasetBundle(L.prevalence(), V, U)
 
-
-def get_posteriors_path(dataset_name: str, n_classes: int, h_info: ClassifierInfo):
-    return os.path.join(BASEDIR, f"{h_info.full_name}_{dataset_name}_{n_classes}_post.npz")
+        return d_bundle, h, p_info
 
 
 def load_from_collection(dataset_collection: str, dataset_name: str):
@@ -218,64 +250,13 @@ def load_from_collection(dataset_collection: str, dataset_name: str):
         raise ValueError(f"Unknown dataset collection: {dataset_collection}")
 
 
-def load_info_paths(problem: Literal["binary", "multiclass"] | None = None):
-    paths = glob(os.path.join(BASEDIR, "*_info.pkl"))
+def load_info_paths(domain: str | None = None, problem: Literal["binary", "multiclass"] | None = None):
+    domain = "*" if domain is None else domain
+    _dir = os.path.join(BASEDIR, domain)
+    paths = glob(os.path.join(_dir, "*_info.pkl"))
     if problem == "binary":
         paths = [p for p in paths if "_2_info.pkl" in p]
     elif problem == "multiclass":
         paths = [p for p in paths if "_2_info.pkl" not in p]
 
     return paths
-
-
-def dump_info(
-    dataset_name: str,
-    dataset_collection: str,
-    n_classes: int,
-    h_info: ClassifierInfo,
-    V_posteriors: np.ndarray,
-    U_posteriors: np.ndarray,
-):
-    os.makedirs(BASEDIR, exist_ok=True)
-
-    info_path = get_info_path(dataset_name, n_classes, h_info)
-    post_path = get_posteriors_path(dataset_name, n_classes, h_info)
-
-    bundle = ClassifierDatasetBundle(
-        dataset_name=dataset_name,
-        dataset_collection=dataset_collection,
-        n_classes=n_classes,
-        h_class_name=h_info.class_name,
-        h_params=h_info.params,
-        h_default=h_info.default,
-        h_ms_ignore=h_info.ms_ignore,
-    )
-
-    bundle.save(info_path)
-    np.savez_compressed(post_path, V_posteriors=V_posteriors, U_posteriors=U_posteriors)
-
-
-def load_info(
-    info_path, fast=False
-) -> Tuple[DatasetBundle, PreTrainedClassifier, ClassifierInfo] | Tuple[DatasetBundle, ClassifierInfo]:
-    b = ClassifierDatasetBundle.load(info_path)
-    h_info = ClassifierInfo(
-        class_name=b.h_class_name,
-        params=b.h_params,
-        default=b.h_default,
-        ms_ignore=b.h_ms_ignore,
-    )
-    if not fast:
-        L, V, U = load_from_collection(b.dataset_collection, b.dataset_name)
-
-        post_path = get_posteriors_path(b.dataset_name, b.n_classes, h_info)
-        _npz = np.load(post_path)
-        V_posteriors = _npz["V_posteriors"]
-        U_posteriors = _npz["U_posteriors"]
-        h = PreTrainedClassifier(U_X=U.X, U_posteriors=U_posteriors, V_X=V.X, V_posteriors=V_posteriors)
-        dataset = DatasetBundle(b.dataset_name, b.dataset_collection, b.n_classes, L.prevalence(), V, U)
-
-        return dataset, h, h_info
-    else:
-        dataset = DatasetBundle(b.dataset_name, b.dataset_collection, b.n_classes)
-        return dataset, h_info

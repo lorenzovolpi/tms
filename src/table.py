@@ -57,6 +57,7 @@ def ms_selection():
 
 def gen_tables():
     experiment = main.EXPERIMENT
+    domain = "classic"
     rank_label = "ranking_vals"
 
     base_dir = os.path.join(env.root_dir, experiment)
@@ -70,7 +71,7 @@ def gen_tables():
 
     tbls = []
     accs = get_acc_names()
-    datasets = get_existing_dataset_names(experiment)
+    datasets = get_existing_dataset_names(experiment, domain)
     for acc in accs:
         name = f"{experiment}_{acc}"
         tbl = Table(name=name)

@@ -64,6 +64,7 @@ def get_palette():
 
 
 def plots(experiment: Literal["transd", "hoptim"]):
+    domain = "classic"
     if experiment == "transd":
         ea_label = "estim_accs"
     else:
@@ -71,7 +72,7 @@ def plots(experiment: Literal["transd", "hoptim"]):
         return
 
     accs = get_acc_names()
-    datasets = get_existing_dataset_names()()
+    datasets = get_existing_dataset_names(experiment, domain)
     methods = [
         "oracle",
         "Naive-LR",
