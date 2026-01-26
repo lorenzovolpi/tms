@@ -1,3 +1,4 @@
+import os
 from traceback import print_exception
 from typing import Iterable, Literal, Tuple
 
@@ -17,6 +18,10 @@ DOMAIN = "classic"
 log = get_logger(id=f"{PROJECT}.{EXPERIMENT}.{DOMAIN}")
 
 BATCH_SIZE = 8
+
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["BLIS_NUM_THREADS"] = "1"
 
 
 class TrainResult:
@@ -110,9 +115,9 @@ def pretrain():
     for results in results_gen:
         for r in results:
             if r.is_old:
-                log.info(f"Already exists: {r.h_info.name} on {r.dataset_name}, skipping.")
+                log.info(f"Already exists: {r.p_info.h_info.name} on {r.p_info.d_info.name}, skipping.")
             elif r.is_ok:
-                log.info(f"Pretrained {r.h_info.name} on {r.dataset_name}.")
+                log.info(f"Pretrained {r.p_info.h_info.name} on {r.p_info.d_info.name}.")
                 r.p_info.dump(**r.posteriors)
 
 
