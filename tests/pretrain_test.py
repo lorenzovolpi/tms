@@ -3,9 +3,6 @@ from time import time
 import numpy as np
 import quapy as qp
 from cap.data.datasets import fetch_UCIMulticlassDataset
-from sklearn.linear_model import LogisticRegression
-from sklearn.neighbors import KNeighborsClassifier as KNN
-from sklearn.neural_network import MLPClassifier
 from sklearn.svm import SVC
 
 from data import PreTrainedClassifier
