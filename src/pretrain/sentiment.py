@@ -223,8 +223,10 @@ def embed(model, tokenizer, data, selection_strategy, args):
 
     return split_y, split_logits, split_hidden_states
 
-def save_dataset(data:dict):
-    
+
+def save_dataset(data: dict):
+    pass
+
 
 def pretrain(args: SentimentArgs):
     sout(f"- model: {args.model_name}")
