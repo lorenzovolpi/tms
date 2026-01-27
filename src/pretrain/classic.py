@@ -1,4 +1,5 @@
 import os
+from dataclasses import dataclass
 from traceback import print_exception
 from typing import Iterable, Literal, Tuple
 
@@ -61,6 +62,19 @@ class TrainResult:
         )
 
 
+@dataclass()
+class Posteriors:
+    V_posteriors: np.ndarray
+    U_posteriors: np.ndarray
+
+    @property
+    def VU(self):
+        return dict(
+            V_posteriors=self.V_posteriors,
+            U_posteriors=self.U_posteriors,
+        )
+
+
 def train_variants(
     args: Tuple[
         str,
@@ -70,7 +84,7 @@ def train_variants(
         LabelledCollection,
         Iterable[Tuple[BaseEstimator, ClassifierInfo]],
     ],
-) -> list[TrainResult]:
+) -> list[Tuple[PretainInfo, Posteriors]]:
     dataset_name, dataset_coll, L, V, U, h_batch = args
     n_classes = L.n_classes
     d_info = DatasetInfo(dataset_name, dataset_coll, n_classes)
@@ -78,14 +92,11 @@ def train_variants(
     results = []
     for h, h_info in h_batch:
         p_info = PretainInfo(DOMAIN, d_info, h_info)
-        if p_info.exists:
-            results.append(TrainResult.old(p_info))
-            continue
 
         h.fit(*L.Xy)
         V_posteriors = h.predict_proba(V.X)
         U_posteriors = h.predict_proba(U.X)
-        results.append(TrainResult.ok(p_info, V_posteriors, U_posteriors))
+        results.append((p_info, Posteriors(V_posteriors, U_posteriors)))
 
     return results
 
@@ -95,16 +106,21 @@ def pretrain():
     for dataset in gen_datasets():
         dataset_name, dataset_coll, (L, V, U) = dataset
         n_classes = L.n_classes
+        d_info = DatasetInfo(dataset_name, dataset_coll, n_classes)
         i = 0
         clsf_batches = []
         for clsf in gen_classifiers(n_classes):
+            _, h_info = clsf
+            if PretainInfo(DOMAIN, d_info, h_info).exists:
+                log.info(f"Already exists: {h_info.name} on {d_info.name}, skipping.")
+                continue
             if i % 8 == 0:
                 clsf_batches.append([])
             clsf_batches[-1].append(clsf)
         for batch in clsf_batches:
             datasets_classifiers.append((dataset_name, dataset_coll, L, V, U, batch))
 
-    results_gen: Iterable[list[TrainResult]] = parallel(
+    results_gen: Iterable[list[Tuple[PretainInfo, Posteriors]]] = parallel(
         func=train_variants,
         args_list=datasets_classifiers,
         n_jobs=cap.env["N_JOBS"],
@@ -113,12 +129,9 @@ def pretrain():
     )
 
     for results in results_gen:
-        for r in results:
-            if r.is_old:
-                log.info(f"Already exists: {r.p_info.h_info.name} on {r.p_info.d_info.name}, skipping.")
-            elif r.is_ok:
-                log.info(f"Pretrained {r.p_info.h_info.name} on {r.p_info.d_info.name}.")
-                r.p_info.dump(**r.posteriors)
+        for p_info, post in results:
+            log.info(f"Pretrained {p_info.h_info.name} on {p_info.d_info.name}.")
+            p_info.dump(**post.VU)
 
 
 if __name__ == "__main__":
