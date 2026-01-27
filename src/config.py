@@ -105,39 +105,33 @@ def gen_classifiers(n_classes) -> Iterable[Tuple[BaseEstimator, ClassifierInfo]]
 def gen_datasets(
     only_names=False,
 ) -> Iterable[tuple[str, tuple[LabelledCollection, LabelledCollection, LabelledCollection] | None]]:
-    if env.PROBLEM == "binary":
-        # _uci_skip = ["acute.a", "acute.b", "balance.2", "iris.1"]
-        # _uci_names = [d for d in UCI_BINARY_DATASETS if d not in _uci_skip]
-        _uci_bin_native = [
-            "breast-cancer",
-            "german",
-            "haberman",
-            "ionosphere",
-            "mammographic",
-            "semeion",
-            "sonar",
-            "spambase",
-            "spectf",
-            "tictactoe",
-            "transfusion",
-            "wdbc",
-            # "yeast",
-        ]
-        _uci_names = [d for d in UCI_BINARY_DATASETS if d in _uci_bin_native]
-        _sorted_uci_names = sort_datasets_by_size(_uci_names, fetch_UCIBinaryDataset)
-        coll = "uci_binary"
-        for dn in _sorted_uci_names[:5]:
-            dval = None if only_names else fetch_UCIBinaryDataset(dn)
-            yield dn, coll, dval
-    elif env.PROBLEM == "multiclass":
-        # _uci_skip = ["isolet", "wine-quality", "letter"]
-        _uci_skip = []
-        _uci_names = [d for d in UCI_MULTICLASS_DATASETS if d not in _uci_skip]
-        _sorted_uci_names = sort_datasets_by_size(_uci_names, fetch_UCIMulticlassDataset)
-        coll = "uci_multiclass"
-        for dn in _sorted_uci_names:
-            dval = None if only_names else fetch_UCIMulticlassDataset(dn)
-            yield dn, coll, dval
+    _uci_bin_native = [
+        "breast-cancer",
+        "german",
+        "haberman",
+        "ionosphere",
+        "mammographic",
+        "semeion",
+        "sonar",
+        "spambase",
+        "spectf",
+        "tictactoe",
+        "transfusion",
+        "wdbc",
+        # "yeast",
+    ]
+    _uci_bin_names = [d for d in UCI_BINARY_DATASETS if d in _uci_bin_native]
+    _sorted_bin_names = sort_datasets_by_size(_uci_bin_names, fetch_UCIBinaryDataset)
+    coll = "uci_binary"
+    for dn in _sorted_bin_names[:5]:
+        dval = None if only_names else fetch_UCIBinaryDataset(dn)
+        yield dn, coll, dval
+    _uci_mul_names = [d for d in UCI_MULTICLASS_DATASETS]
+    _sorted_mul_names = sort_datasets_by_size(_uci_mul_names, fetch_UCIMulticlassDataset)
+    coll = "uci_multiclass"
+    for dn in _sorted_mul_names:
+        dval = None if only_names else fetch_UCIMulticlassDataset(dn)
+        yield dn, coll, dval
 
 
 def get_acc_names():
