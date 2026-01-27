@@ -202,17 +202,6 @@ class PretainInfo:
 
     def dump(self, V_posteriors: np.ndarray, U_posteriors: np.ndarray):
         os.makedirs(os.path.dirname(self.info_path), exist_ok=True)
-        # obj = dict(
-        #     domain=self.domain,
-        #     dataset_name=self.d_info.name,
-        #     dataset_collection=self.d_info.collection,
-        #     h_class_name=self.h_info.class_name,
-        #     h_params=self.h_info.params,
-        #     h_default=self.h_info.default,
-        #     h_ms_ignore=self.h_info.ms_ignore,
-        # )
-        # with open(self.info_path, "w") as f:
-        #     json.dump(obj, f)
         with open(self.info_path, "wb") as f:
             pickle.dump(self, f)
         np.savez_compressed(self.posteriors_path, V_posteriors=V_posteriors, U_posteriors=U_posteriors)
@@ -221,35 +210,30 @@ class PretainInfo:
     def load(cls, path: str, fast: bool = False) -> Tuple[DatasetBundle, PreTrainedClassifier, Self] | Self:
         with open(path, "rb") as f:
             p_info = pickle.load(f)
-        # h_info = ClassifierInfo(
-        #     class_name=b["h_class_name"],
-        #     params=b["h_params"],
-        #     default=b["h_default"],
-        #     ms_ignore=b["h_ms_ignore"],
-        # )
-        # d_info = DatasetInfo(b["dataset_name"], b["dataset_collection"], b["n_classes"])
-        # p_info = PretainInfo(b["domain"], d_info, h_info)
         if fast:
             return p_info
-        d_info = p_info.d_info
 
-        L, V, U = load_from_collection(d_info.collection, d_info.name)
+        L_prevalence, V, U = load_from_collection(p_info)
 
         post_path = p_info.posteriors_path
         _npz = np.load(post_path)
         V_posteriors = _npz["V_posteriors"]
         U_posteriors = _npz["U_posteriors"]
         h = PreTrainedClassifier(U_X=U.X, U_posteriors=U_posteriors, V_X=V.X, V_posteriors=V_posteriors)
-        d_bundle = DatasetBundle(L.prevalence(), V, U)
+        d_bundle = DatasetBundle(L_prevalence, V, U)
 
         return d_bundle, h, p_info
 
 
-def load_from_collection(dataset_collection: str, dataset_name: str):
+def load_from_collection(p_info: PretainInfo):
+    dataset_collection = p_info.d_info.collection
+    dataset_name = p_info.d_info.name
     if dataset_collection == "uci_binary":
-        return fetch_UCIBinaryDataset(dataset_name)
+        L, V, U = fetch_UCIBinaryDataset(dataset_name)
+        return L.prevalence(), V, U
     elif dataset_collection == "uci_multiclass":
-        return fetch_UCIMulticlassDataset(dataset_name)
+        L, V, U = fetch_UCIMulticlassDataset(dataset_name)
+        return L.prevalence(), V, U
     else:
         raise ValueError(f"Unknown dataset collection: {dataset_collection}")
 
