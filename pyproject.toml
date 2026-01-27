@@ -6,11 +6,13 @@ readme = "README.md"
 requires-python = ">=3.12.8"
 dependencies = [
     "cap-ml @ git+https://github.com/lorenzovolpi/cap-ml.git",
+    "datasets>=4.5.0",
     "fastparquet>=2025.12.0",
     "numba>=0.63.1",
     "numpy<2.4.0",
     "pandatex @ git+https://github.com/lorenzovolpi/pandatex.git",
     "pyarrow>=23.0.0",
+    "transformers[torch]>=5.0.0",
 ]
 
 [tool.setuptools.package-dir]
