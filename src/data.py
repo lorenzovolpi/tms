@@ -101,7 +101,7 @@ class PreTrainedClassifier(ABC):
 class ClassifierInfo:
     class_name: str
     params: dict
-    default: bool
+    default: bool = False
     ms_ignore: bool = False
 
     @classmethod

@@ -10,8 +10,10 @@ def get_dataset_path(domain, dataset_name, model_name):
     return os.path.join(BASEDIR, f"{domain}_{dataset_name}_{model_name}.npz")
 
 
-def save_sentiment(dataset_name, model_name, classes, train_prev, val_hidden_states, val_y, test_hidden_states, test_y):
+def save_sentiment(dataset_name, model_name, classes, train_prev, embeds):
     path = get_dataset_path("sentiment", dataset_name, model_name)
+    val_hidden_states, val_y = embeds["validation"]
+    test_hidden_states, test_y = embeds["test"]
     d = dict(
         classes=classes,
         L_prevalence=train_prev,

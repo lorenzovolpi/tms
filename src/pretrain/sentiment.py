@@ -1,7 +1,11 @@
+import itertools as IT
 import os
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from itertools import batched
+from typing import Any
 
+import numpy as np
+import quapy as qp
 import torch
 from datasets import load_dataset
 from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
@@ -14,13 +18,27 @@ from transformers import (
 )
 from transformers.trainer_utils import get_last_checkpoint
 
-from data import DatasetInfo
+from data import ClassifierInfo, DatasetInfo, PretainInfo
+from pretrain.dataset import save_sentiment
 
 VERBOSE = True
+qp.environ["_R_SEED"] = 0
 
 
-def dataset(name: str, n: int):
-    return DatasetInfo(name, "sentiment", n)
+hf_dataset_map = {}
+hf_model_map = {}
+
+
+def _fdataset(name: str, n: int):
+    proper_name = name.replace("/", "__")
+    hf_dataset_map[proper_name] = name
+    return DatasetInfo(proper_name, "sentiment", n)
+
+
+def _fmodel(name: str):
+    proprer_name = name.replace("/", "__")
+    hf_model_map[proprer_name] = name
+    return proprer_name
 
 
 def sout(*args):
@@ -28,41 +46,68 @@ def sout(*args):
         print(*args)
 
 
-model_names = [
-    "google-bert/bert-base-uncased",
-]
+def gen_datasets():
+    yield _fdataset("stanfordnlp/imdb", 2)
 
-dataset_names = [
-    dataset("stanfordnlp/imdb", 2),
-]
+
+def gen_model_args():
+    model_params = [
+        (
+            "google-bert/bert-base-uncased",
+            dict(
+                train_backbone=[True, False],
+            ),
+        ),
+    ]
+
+    for model_name, param_dict in model_params:
+        _keys = list(param_dict.keys())
+        _param_combos = IT.product(*list(param_dict.values()))
+        for _combo in _param_combos:
+            _params = dict(zip(_keys, _combo))
+            yield _fmodel(model_name, SentimentArgs(**_params))
+
+
+def gen_config():
+    for d_info, (model_name, args) in IT.product(gen_datasets(), gen_model_args()):
+        yield d_info, model_name, args
+
+
+def get_val_split(dataset):
+    _default = 0.5
+    _val_splits = {
+        "stanfordnlp/imdb": 0.8,
+    }
+    return _val_splits.get(hf_dataset_map.get(dataset, dataset), _default)
+
+
+def get_label_tag(dataset):
+    _default = "label"
+    _label_tags = {
+        "stanfordnlp/imdb": "label",
+    }
+    return _label_tags.get(hf_dataset_map.get(dataset, dataset), _default)
 
 
 @dataclass
 class SentimentArgs:
-    model_name: str
-    d_info: DatasetInfo
     max_length: int = 512
     nepochs: int = 3
     train_batchsize: int = 64
     embed_batchsize: int = 512
-    val_size: float = 0.2
     lr: float = 5e-4
     train_backbone: bool = False
     device: str = "cuda"
+    load_bf16: bool = False
 
     @property
-    def dataset_name(self) -> str:
-        return self.d_info.name
-
-    @property
-    def num_classes(self) -> int:
-        return self.d_info.n_classes
+    def params(self) -> dict[str, Any]:
+        # NOTE: asdict makes a deepcopy!
+        return asdict(self)
 
 
-def get_tr_outdir(args: SentimentArgs):
-    model_name = args.model_name.split("/")[-1]
-    dataset_name = args.dataset_name.split("/")[-1]
-    outdir = os.path.join("output", "tms", "models", dataset_name, model_name)
+def get_tr_outdir(p_info: PretainInfo):
+    outdir = os.path.join("output", "tms", "models", p_info.h_info.full_name, p_info.d_info.name)
     os.makedirs(outdir, exist_ok=True)
     return outdir
 
@@ -75,33 +120,35 @@ def get_embed_outdir(args):
     return outdir
 
 
-def get_dataset(args: SentimentArgs):
+def get_dataset(d_info: DatasetInfo):
     """
     Load dataset and create validation split if does not exist.
     Also check that the number of classes matches the expected number.
     """
-    dataset = load_dataset(args.dataset_name)
+    dataset = load_dataset(hf_dataset_map.get(d_info.name, d_info.name))
 
     if "validation" not in dataset:
+        val_split = get_val_split(d_info.name)
         sout("splitting training set into train/validation...")
-        _tmp_dataset = dataset["train"].train_test_split(test_size=args.val_size)
+        _tmp_dataset = dataset["train"].train_test_split(test_size=val_split, seed=qp.environ["_R_SEED"])
         dataset["train"] = _tmp_dataset["train"]
         dataset["validation"] = _tmp_dataset["test"]
 
     n_inferred_classes = dataset["train"].shape[-1]
-    if args.num_classes != n_inferred_classes:
+    if d_info.n_classes != n_inferred_classes:
         sout(
-            f"number of inferred target classes ({n_inferred_classes}) != number of given target classes ({args.num_classes})"
+            f"number of inferred target classes ({n_inferred_classes}) != number of given target classes ({d_info.n_classes})"
         )
 
     return dataset
 
 
-def get_classifier(model_name, n_classes=2, use_bfloat16=False, device="cuda"):
-    torch_dtype = torch.bfloat16 if use_bfloat16 else torch.float32
+def get_classifier(model_name, d_info: DatasetInfo, args: SentimentArgs):
+    torch_dtype = torch.bfloat16 if args.load_bf16 else torch.float32
+    model_name = hf_model_map.get(model_name, model_name)
     model = AutoModelForSequenceClassification.from_pretrained(
-        model_name, num_labels=n_classes, torch_dtype=torch_dtype
-    ).to(device)
+        model_name, num_labels=d_info.n_classes, torch_dtype=torch_dtype
+    ).to(args.device)
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     return model, tokenizer
 
@@ -144,8 +191,8 @@ def compute_clf_metrics(preds):
     return {"acc": acc, "recall": recall, "precision": precision, "f1": f1}
 
 
-def train_model(args: SentimentArgs, model, dataset):
-    training_outdir = get_tr_outdir(args)
+def train_model(args: SentimentArgs, p_info: PretainInfo, model, dataset):
+    training_outdir = get_tr_outdir(p_info)
 
     trainer_args = TrainingArguments(
         output_dir=training_outdir,
@@ -160,7 +207,7 @@ def train_model(args: SentimentArgs, model, dataset):
         eval_steps=100,
         logging_steps=100,
         bf16=True,
-        metric_for_best_model="f1",
+        metric_for_best_model="acc",
         greater_is_better=True,
         save_total_limit=2,
         report_to="none",
@@ -228,13 +275,18 @@ def save_dataset(data: dict):
     pass
 
 
-def pretrain(args: SentimentArgs):
+def pretrain(d_info: DatasetInfo, model_name: str, args: SentimentArgs):
+    h_info = ClassifierInfo(class_name=model_name, params=args.params)
+    p_info = PretainInfo(domain="sentiment", d_info=d_info, h_info=h_info)
+    if p_info.exists:
+        return
+
     sout(f"- model: {args.model_name}")
     sout(f"- dataset: {args.dataset_name}")
 
-    dataset = get_dataset(args)
+    dataset = get_dataset(d_info)
 
-    model, tokenizer = get_classifier(model_name=args.model_name, n_classes=args.num_classes, device=args.device)
+    model, tokenizer = get_classifier(model_name, d_info, args)
     model = prepare_model(args, model)
 
     dataset = tokenize_dataset(args, tokenizer, dataset)
@@ -246,21 +298,23 @@ def pretrain(args: SentimentArgs):
     sout("\nEmbedding...")
     sout(f"- storing embeddings in {embeds_outdir}")
     splits = ["validation", "test"]
+    embedddings = {}
     for split in splits:
         split_data = dataset[split]
         split_y, split_logits, split_last_hiddens = embed(
             model, tokenizer, data=split_data, selection_strategy=get_cls_bertlike, args=args
         )
+        embedddings[split] = (split_last_hiddens, split_y)
 
-        # torch.save(split_logits, os.path.join(embeds_outdir, f"logits.{split}.pt"))
-        # torch.save(split_last_hiddens, os.path.join(embeds_outdir, f"hidden_states.{split}.pt"))
+    label_tag = get_label_tag(d_info.name)
+    train_labels = np.array(dataset["train"][label_tag])
+    classes = np.unique(train_labels)
+    train_prev = np.sum(classes.reshape(-1, 1) == train_labels, axis=-1) / train_labels.shape[0]
 
+    save_sentiment(d_info.name, h_info.full_name, classes, train_prev, embedddings)
+    # torch.save(split_logits, os.path.join(embeds_outdir, f"logits.{split}.pt"))
+    # torch.save(split_last_hiddens, os.path.join(embeds_outdir, f"hidden_states.{split}.pt"))
 
-args = SentimentArgs(
-    model_names[0],
-    dataset_names[0],
-    train_backbone=False,
-)
 
 if __name__ == "__main__":
     if (
@@ -270,4 +324,5 @@ if __name__ == "__main__":
     ):
         raise ValueError("Missing env variables")
 
-    pretrain(args)
+    for d_info, model_name, args in gen_config():
+        pretrain(d_info, model_name, args)
