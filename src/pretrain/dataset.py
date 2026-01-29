@@ -10,8 +10,9 @@ def get_dataset_path(domain, dataset_name, model_name):
     return os.path.join(BASEDIR, f"{domain}_{dataset_name}_{model_name}.npz")
 
 
-def save_sentiment(dataset_name, model_name, classes, train_prev, embeds):
-    path = get_dataset_path("sentiment", dataset_name, model_name)
+def save_text(dataset_name, model_name, classes, train_prev, embeds):
+    domain = "text"
+    path = get_dataset_path(domain, dataset_name, model_name)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     val_hidden_states, val_y = embeds["validation"]
     test_hidden_states, test_y = embeds["test"]
@@ -26,8 +27,9 @@ def save_sentiment(dataset_name, model_name, classes, train_prev, embeds):
     np.savez_compressed(path, **d)
 
 
-def load_sentiment(dataset_name, model_name):
-    path = get_dataset_path("sentiment", dataset_name, model_name)
+def load_text(dataset_name, model_name):
+    domain = "text"
+    path = get_dataset_path(domain, dataset_name, model_name)
     _data = np.load(path)
     _classes = _data["classes"]
     L_prevalence = _data["L_prevalence"]

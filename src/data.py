@@ -19,6 +19,7 @@ from quapy.protocol import UPP, AbstractStochasticSeededProtocol
 from sklearn.base import BaseEstimator, clone
 
 import env
+from pretrain.dataset import load_text
 from util import split_validation
 
 BASEDIR = os.path.join("output", "tms", "pretrain")
@@ -234,6 +235,8 @@ def load_from_collection(p_info: PretainInfo):
     elif dataset_collection == "uci_multiclass":
         L, V, U = fetch_UCIMulticlassDataset(dataset_name)
         return L.prevalence(), V, U
+    elif dataset_collection == "text":
+        return load_text(dataset_name, p_info.h_info.full_name)
     else:
         raise ValueError(f"Unknown dataset collection: {dataset_collection}")
 
