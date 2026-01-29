@@ -2,6 +2,7 @@ import itertools as IT
 import os
 from dataclasses import asdict, dataclass
 from itertools import batched
+from traceback import print_exception
 from typing import Any
 
 import numpy as np
@@ -19,11 +20,18 @@ from transformers import (
 from transformers.trainer_utils import get_last_checkpoint
 
 from data import ClassifierInfo, DatasetInfo, PretainInfo
+from env import PROJECT
 from pretrain.dataset import save_sentiment
+from util import get_logger
 
+EXPERIMENT = "pretrain"
+DOMAIN = "sentiment"
+
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 VERBOSE = True
 qp.environ["_R_SEED"] = 0
 
+log = get_logger(id=f"{PROJECT}.{EXPERIMENT}.{DOMAIN}")
 
 hf_dataset_map = {}
 hf_model_map = {}
@@ -32,7 +40,7 @@ hf_model_map = {}
 def _fdataset(name: str, n: int):
     proper_name = name.replace("/", "__")
     hf_dataset_map[proper_name] = name
-    return DatasetInfo(proper_name, "sentiment", n)
+    return DatasetInfo(proper_name, DOMAIN, n)
 
 
 def _fmodel(name: str):
@@ -55,7 +63,9 @@ def gen_model_args():
         (
             "google-bert/bert-base-uncased",
             dict(
-                train_backbone=[True, False],
+                train_hs=[True, False],
+                lr=[2e-5, 5e-4],
+                nepochs=[2, 5, 10],
             ),
         ),
     ]
@@ -65,7 +75,7 @@ def gen_model_args():
         _param_combos = IT.product(*list(param_dict.values()))
         for _combo in _param_combos:
             _params = dict(zip(_keys, _combo))
-            yield _fmodel(model_name, SentimentArgs(**_params))
+            yield _fmodel(model_name), SentimentArgs(**_params)
 
 
 def gen_config():
@@ -92,12 +102,11 @@ def get_label_tag(dataset):
 @dataclass
 class SentimentArgs:
     max_length: int = 512
-    nepochs: int = 3
-    train_batchsize: int = 64
-    embed_batchsize: int = 512
-    lr: float = 5e-4
-    train_backbone: bool = False
-    device: str = "cuda"
+    nepochs: int = 2
+    train_bsize: int = 32
+    embed_bsize: int = 512
+    lr: float = 2e-5
+    train_hs: bool = False
     load_bf16: bool = False
 
     @property
@@ -115,7 +124,7 @@ def get_tr_outdir(p_info: PretainInfo):
 def get_embed_outdir(args):
     model_name = args.model_name.split("/")[-1]
     dataset_name = args.dataset_name.split("/")[-1]
-    outdir = os.path.join("output", "tms", "pretrain", "sentiment", dataset_name, model_name)
+    outdir = os.path.join("output", "tms", "pretrain", DOMAIN, dataset_name, model_name)
     os.makedirs(outdir, exist_ok=True)
     return outdir
 
@@ -148,14 +157,14 @@ def get_classifier(model_name, d_info: DatasetInfo, args: SentimentArgs):
     model_name = hf_model_map.get(model_name, model_name)
     model = AutoModelForSequenceClassification.from_pretrained(
         model_name, num_labels=d_info.n_classes, torch_dtype=torch_dtype
-    ).to(args.device)
+    ).to(DEVICE)
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     return model, tokenizer
 
 
 def prepare_model(args: SentimentArgs, model):
     # freeze base model -> train only fresh init classification head
-    if not args.train_backbone:
+    if not args.train_hs:
         sout("- freezing base model weights")
         for _, layer_weights in model.base_model.named_parameters():
             layer_weights.requires_grad = False
@@ -199,13 +208,13 @@ def train_model(args: SentimentArgs, p_info: PretainInfo, model, dataset):
         do_train=True,
         learning_rate=args.lr,
         num_train_epochs=args.nepochs,
-        per_device_train_batch_size=args.train_batchsize,
-        per_device_eval_batch_size=args.train_batchsize * 4,
+        per_device_train_batch_size=args.train_bsize,
+        per_device_eval_batch_size=args.train_bsize * 4,
         lr_scheduler_type="cosine",
         warmup_ratio=0.1,
         eval_strategy="steps",
         eval_steps=100,
-        logging_steps=100,
+        logging_steps=50,
         bf16=True,
         metric_for_best_model="acc",
         greater_is_better=True,
@@ -244,67 +253,72 @@ def get_cls_bertlike(x):
     return cls_emebds
 
 
-def embed(model, tokenizer, data, selection_strategy, args):
-    split_logits = []
+def embed(model, tokenizer, data, selection_strategy, args: SentimentArgs):
+    # split_logits = []
+    split_posteriors = []
     split_hidden_states = []
     split_y = []
-    for batch in batched(tqdm(data), n=args.embed_batchsize):
+    for batch in batched(tqdm(data), n=args.embed_bsize):
         texts, labels = zip(*((d["text"], d["label"]) for d in batch))
-        print(type(labels))
         with torch.no_grad():
             model_inputs = tokenizer(
                 texts, truncation=True, max_length=args.max_length, padding="max_length", return_tensors="pt"
             )  # pad each batch to max_length
-            output = model(**model_inputs.to(args.device), output_hidden_states=True)
+            output = model(**model_inputs.to(DEVICE), output_hidden_states=True)
         logits = output.logits
+        posteriors = torch.softmax(logits, dim=-1)
         hidden_states = output.hidden_states
         last_hidden_states = hidden_states[-1]
 
         split_y.append(torch.tensor(labels))
         split_hidden_states.append(selection_strategy(last_hidden_states.cpu().detach()))
-        split_logits.append(logits.cpu().detach())
+        # split_logits.append(logits.cpu().detach())
+        split_posteriors.append(posteriors.cpu().detach())
 
-    split_y = torch.vstack(split_y).numpy()
-    split_logits = torch.vstack(split_logits).numpy()
+    split_y = torch.cat(split_y, dim=0).numpy()
+    # split_logits = torch.vstack(split_logits).numpy()
+    split_posteriors = torch.vstack(split_posteriors).numpy()
     split_hidden_states = torch.vstack(split_hidden_states).numpy()
 
-    return split_y, split_logits, split_hidden_states
-
-
-def save_dataset(data: dict):
-    pass
+    return split_y, split_posteriors, split_hidden_states
 
 
 def pretrain(d_info: DatasetInfo, model_name: str, args: SentimentArgs):
     h_info = ClassifierInfo(class_name=model_name, params=args.params)
-    p_info = PretainInfo(domain="sentiment", d_info=d_info, h_info=h_info)
+    p_info = PretainInfo(domain=DOMAIN, d_info=d_info, h_info=h_info)
     if p_info.exists:
+        log.info(f"[{h_info.name}@{d_info.name}] already exists, skipping.")
         return
 
-    sout(f"- model: {args.model_name}")
-    sout(f"- dataset: {args.dataset_name}")
+    log.info(f"[{h_info.name}@{d_info.name}] started pretrain")
+    sout(f"- model: {h_info.name}")
+    sout(f"- dataset: {d_info.name}")
 
     dataset = get_dataset(d_info)
+    log.info(f"[{h_info.name}@{d_info.name}] dataset loaded")
 
     model, tokenizer = get_classifier(model_name, d_info, args)
     model = prepare_model(args, model)
+    log.info(f"[{h_info.name}@{d_info.name}] model loaded")
 
     dataset = tokenize_dataset(args, tokenizer, dataset)
+    log.info(f"[{h_info.name}@{d_info.name}] dataset tokinezed")
 
-    train_model(args, model, dataset)
+    train_model(args, p_info, model, dataset)
+    log.info(f"[{h_info.name}@{d_info.name}] model trained")
 
     # Get embedddings and logits
-    embeds_outdir = get_embed_outdir(args)
     sout("\nEmbedding...")
-    sout(f"- storing embeddings in {embeds_outdir}")
     splits = ["validation", "test"]
     embedddings = {}
+    posteriors = {}
     for split in splits:
         split_data = dataset[split]
-        split_y, split_logits, split_last_hiddens = embed(
+        split_y, split_posteriors, split_last_hiddens = embed(
             model, tokenizer, data=split_data, selection_strategy=get_cls_bertlike, args=args
         )
         embedddings[split] = (split_last_hiddens, split_y)
+        posteriors[split] = split_posteriors
 
     label_tag = get_label_tag(d_info.name)
     train_labels = np.array(dataset["train"][label_tag])
@@ -312,8 +326,9 @@ def pretrain(d_info: DatasetInfo, model_name: str, args: SentimentArgs):
     train_prev = np.sum(classes.reshape(-1, 1) == train_labels, axis=-1) / train_labels.shape[0]
 
     save_sentiment(d_info.name, h_info.full_name, classes, train_prev, embedddings)
-    # torch.save(split_logits, os.path.join(embeds_outdir, f"logits.{split}.pt"))
-    # torch.save(split_last_hiddens, os.path.join(embeds_outdir, f"hidden_states.{split}.pt"))
+    log.info(f"[{h_info.name}@{d_info.name}] embeddings saved")
+    p_info.dump(V_posteriors=posteriors["validation"], U_posteriors=posteriors["test"])
+    log.info(f"[{h_info.name}@{d_info.name}] posteriors saved")
 
 
 if __name__ == "__main__":
@@ -324,5 +339,11 @@ if __name__ == "__main__":
     ):
         raise ValueError("Missing env variables")
 
-    for d_info, model_name, args in gen_config():
-        pretrain(d_info, model_name, args)
+    log.info("-" * 31 + "  start  " + "-" * 31)
+    try:
+        for d_info, model_name, args in gen_config():
+            pretrain(d_info, model_name, args)
+    except Exception as e:
+        log.error(e)
+        print_exception(e)
+    log.info("-" * 32 + "  end  " + "-" * 32)

@@ -12,6 +12,7 @@ def get_dataset_path(domain, dataset_name, model_name):
 
 def save_sentiment(dataset_name, model_name, classes, train_prev, embeds):
     path = get_dataset_path("sentiment", dataset_name, model_name)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
     val_hidden_states, val_y = embeds["validation"]
     test_hidden_states, test_y = embeds["test"]
     d = dict(
