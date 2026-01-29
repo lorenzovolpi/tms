@@ -146,11 +146,11 @@ def get_selection_acc(name: str, multiclass: bool) -> Callable:
     }[name]
 
 
-def get_evaluation_acc(name: str, multiclass: bool) -> Callable:
+def get_evaluation_acc(name: str, is_multiclass: bool) -> Callable:
     return {
         "vanilla_accuracy": vanilla_acc,
-        "macro-F1": (f1_macro if multiclass else f1),
-        "macro-K": (k_macro if multiclass else k_bin),
+        "macro-F1": (f1_macro if is_multiclass else f1),
+        "macro-K": (k_macro if is_multiclass else k_bin),
     }[name]
 
 
@@ -162,14 +162,13 @@ def acc_from_ct(acc_name: str, ct: np.ndarray, type: Literal["selection", "evalu
         return get_evaluation_acc(acc_name, n_classes > 2)(ct)
 
 
-def gen_acc_measure():
-    multiclass = env.PROBLEM == "multiclass"
+def gen_acc_measure(is_multiclass: bool):
     for acc in get_acc_names():
-        yield acc, get_selection_acc(acc, multiclass)
+        yield acc, get_selection_acc(acc, is_multiclass)
 
 
 def gen_methods():
-    _, acc = next(gen_acc_measure())
+    _, acc = next(gen_acc_measure(True))
     yield "IMS", IMS(acc)
     yield "TMS_LEAP", LEAP(acc)
     yield "TMS_RQBS", RQBS(acc)
@@ -192,8 +191,8 @@ def get_dataset_names():
     return [name for name, _, _ in gen_datasets(only_names=True)]
 
 
-def get_existing_dataset_names(experiment: str, domain: str, problem: Literal["binary", "multiclass"] | None = None):
-    info_paths = load_info_paths(domain=domain, problem=problem)
+def get_existing_dataset_names(experiment: str, domain: str):
+    info_paths = load_info_paths(domain=domain)
     dataset_h_map = defaultdict(lambda: True)
     for path in info_paths:
         p = PretainInfo.load(path, fast=True)
@@ -202,7 +201,7 @@ def get_existing_dataset_names(experiment: str, domain: str, problem: Literal["b
         #     continue
         problem = "multiclass" if d_info.n_classes > 2 else "binary"
         dataset_h_map[d_info.name] = dataset_h_map[d_info.name] and all_results_exist(
-            d_info.name, h_info.full_name, get_method_names(), get_acc_names(), experiment, problem
+            p.domain, d_info.name, h_info.full_name, get_method_names(), get_acc_names(), experiment
         )
 
     dataset_names = [d for d, all_exist in dataset_h_map.items() if all_exist]

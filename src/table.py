@@ -89,7 +89,7 @@ def gen_tables():
         )
         for dataset in datasets:
             res = (
-                Results.load(base_dir=base_dir, acc_name=acc, dataset=dataset, set_problem=False)
+                Results.load(base_dir=base_dir, acc_name=acc, dataset=dataset, domain=domain)
                 # .split_by_shift(prevs=0.5)
                 .model_selection(selection=ms_selection(), rank_label=rank_label)
                 .map_column_values("method", method_map)

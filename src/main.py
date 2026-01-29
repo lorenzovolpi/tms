@@ -48,8 +48,7 @@ def get_extra_from_method(df, method):
 @dataclass
 class EXP:
     code: int
-    h_info: ClassifierInfo
-    dataset_name: str
+    p: PretainInfo
     acc_name: str
     method_name: str
     df: RDF = None
@@ -102,7 +101,7 @@ def exp_protocol(args: tuple[str, str, ModelSelectionMethod]) -> EXP:
         method.fit(val, val_posteriors, D.test_prot, D.test_prot_posteriors)
         t_train = time() - tinit
     except Exception as e:
-        results.append(EXP.ERROR(e, h_info, d_info.name, "fit", method_name))
+        results.append(EXP.ERROR(e, p, "fit", method_name))
         return results
 
     L_prev = get_plain_prev(D.L_prevalence)
@@ -112,10 +111,10 @@ def exp_protocol(args: tuple[str, str, ModelSelectionMethod]) -> EXP:
     # tp_true_cts = [ct.ravel() for ct in D.test_prot_true_cts]
     tp_true_cts = D.test_prot_true_cts
 
-    for acc_name, acc_fn in gen_acc_measure():
-        path = local_path(d_info.name, h_info.full_name, method_name, acc_name, experiment=EXPERIMENT)
+    for acc_name, acc_fn in gen_acc_measure(d_info.n_classes > 2):
+        path = local_path(p.domain, d_info.name, h_info.full_name, method_name, acc_name, experiment=EXPERIMENT)
         if os.path.exists(path):
-            results.append(EXP.EXISTS(h_info, d_info.name, acc_name, method_name))
+            results.append(EXP.EXISTS(p, acc_name, method_name))
             continue
 
         try:
@@ -124,7 +123,7 @@ def exp_protocol(args: tuple[str, str, ModelSelectionMethod]) -> EXP:
             t_test_ave = (time() - tinit) / df_len
         except Exception as e:
             print_exception(e)
-            results.append(EXP.ERROR(e, h_info, d_info.name, acc_name, method_name))
+            results.append(EXP.ERROR(e, p, acc_name, method_name))
             continue
 
         # df_len = len(estim_accs)
@@ -151,8 +150,7 @@ def exp_protocol(args: tuple[str, str, ModelSelectionMethod]) -> EXP:
 
         results.append(
             EXP.SUCCESS(
-                h_info,
-                d_info.name,
+                p,
                 acc_name,
                 method_name,
                 df=method_df,
@@ -166,12 +164,14 @@ def exp_protocol(args: tuple[str, str, ModelSelectionMethod]) -> EXP:
 
 def experiments():
     experiment_args = []
-    info_paths = load_info_paths(problem=env.PROBLEM)
+    info_paths = load_info_paths(domain=env.DOMAIN)
     filtered_paths = []
     for path in info_paths:
         p = PretainInfo.load(path, fast=True)
         d_info, h_info = p.d_info, p.h_info
-        if not all_results_exist(d_info.name, h_info.full_name, get_method_names(), get_acc_names(), EXPERIMENT):
+        if not all_results_exist(
+            p.domain, d_info.name, h_info.full_name, get_method_names(), get_acc_names(), EXPERIMENT
+        ):
             filtered_paths.append(path)
         else:
             log.info(f"[{h_info.name}@{d_info.name}] all results exist, skipping")
@@ -192,8 +192,9 @@ def experiments():
         for r in res:
             if r.ok:
                 path = local_path(
-                    r.dataset_name,
-                    r.h_info.full_name,
+                    r.p.domain,
+                    r.p.d_info.name,
+                    r.p.h_info.full_name,
                     r.method_name,
                     r.acc_name,
                     experiment=EXPERIMENT,

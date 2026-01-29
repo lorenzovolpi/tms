@@ -238,14 +238,9 @@ def load_from_collection(p_info: PretainInfo):
         raise ValueError(f"Unknown dataset collection: {dataset_collection}")
 
 
-def load_info_paths(domain: str | None = None, problem: Literal["binary", "multiclass"] | None = None):
-    domain = "*" if domain is None else domain
+def load_info_paths(domain: str):
     _dir = os.path.join(BASEDIR, domain)
     paths = glob(os.path.join(_dir, "*_info.pkl"))
-    if problem == "binary":
-        paths = [p for p in paths if "_2_info.pkl" in p]
-    elif problem == "multiclass":
-        paths = [p for p in paths if "_2_info.pkl" not in p]
 
     return paths
 

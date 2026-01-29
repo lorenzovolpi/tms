@@ -67,13 +67,12 @@ class Results(ABC):
         base_dir=env.root_dir,
         acc_name="*",
         dataset="*",
+        domain="*",
         filter_methods: list[str] | None = None,
-        set_problem=True,
     ) -> "Results":
-        problem = env.PROBLEM if set_problem else "*"
         dfs = []
         for path in glob(
-            os.path.join(base_dir, problem, acc_name, dataset, "**", "*.parquet"),
+            os.path.join(base_dir, domain, acc_name, dataset, "**", "*.parquet"),
             recursive=True,
         ):
             if filter_methods is None or Path(path).parent.name in filter_methods:

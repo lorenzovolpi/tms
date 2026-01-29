@@ -95,7 +95,7 @@ def plots(experiment: Literal["transd", "hoptim"]):
         res = []
         for dataset in datasets:
             res.append(
-                Results.load(base_dir=base_dir, acc_name=acc, dataset=dataset, set_problem=False)
+                Results.load(base_dir=base_dir, acc_name=acc, dataset=dataset, domain=domain)
                 # .split_by_shift(prevs=0.5)
                 # TODO: split model_selection in submethods
                 .model_selection(oracle=True, rank_label=ea_label)

@@ -53,6 +53,7 @@ def get_logger(id="quacc"):
     _path = os.path.join(cap.env["OUT_DIR"], f"{id}.log")
     logger = logging.getLogger(_name)
     logger.setLevel(logging.DEBUG)
+    logger.propagate = False
     if len(logger.handlers) == 0:
         fh = logging.FileHandler(_path)
         fh.setLevel(logging.DEBUG)
@@ -99,10 +100,9 @@ def split_validation(V: LabelledCollection, ratio=0.6, repeats=100, sample_size=
     return v_train, val_prot
 
 
-def local_path(dataset_name, cls_name, method_name, acc_name, experiment=None, problem=None, format="parquet"):
-    problem = env.PROBLEM if problem is None else problem
+def local_path(domain, dataset_name, cls_name, method_name, acc_name, experiment=None, format="parquet"):
     base_dir = env.root_dir if experiment is None else os.path.join(env.root_dir, experiment)
-    parent_dir = os.path.join(base_dir, problem, acc_name, dataset_name, method_name)
+    parent_dir = os.path.join(base_dir, domain, acc_name, dataset_name, method_name)
     os.makedirs(parent_dir, exist_ok=True)
     return os.path.join(parent_dir, f"{cls_name}.{format}")
 
@@ -116,11 +116,10 @@ def local_path(dataset_name, cls_name, method_name, acc_name, experiment=None, p
 #     return exists
 
 
-def all_results_exist(dataset_name, cls_name, method_names, acc_names, experiment=None, problem=None):
-    problem = env.PROBLEM if problem is None else problem
+def all_results_exist(domain, dataset_name, cls_name, method_names, acc_names, experiment=None):
     all_exist = True
     for method, acc in IT.product(method_names, acc_names):
-        path = local_path(dataset_name, cls_name, method, acc, experiment=experiment, problem=problem)
+        path = local_path(domain, dataset_name, cls_name, method, acc, experiment=experiment)
         all_exist = os.path.exists(path)
         if not all_exist:
             break
