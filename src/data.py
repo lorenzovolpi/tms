@@ -19,7 +19,7 @@ from quapy.protocol import UPP, AbstractStochasticSeededProtocol
 from sklearn.base import BaseEstimator, clone
 
 import env
-from pretrain.dataset import load_text
+from pretrain.dataset import load_dataset
 from util import split_validation
 
 BASEDIR = os.path.join("output", "tms", "pretrain")
@@ -207,6 +207,11 @@ class PretainInfo:
             pickle.dump(self, f)
         np.savez_compressed(self.posteriors_path, V_posteriors=V_posteriors, U_posteriors=U_posteriors)
 
+    def load_dataset_bundle(self):
+        L_prevalence, V, U = load_from_collection(self)
+        d_bundle = DatasetBundle(L_prevalence, V, U)
+        return d_bundle
+
     @classmethod
     def load(cls, path: str, fast: bool = False) -> Tuple[DatasetBundle, PreTrainedClassifier, Self] | Self:
         with open(path, "rb") as f:
@@ -214,14 +219,15 @@ class PretainInfo:
         if fast:
             return p_info
 
-        L_prevalence, V, U = load_from_collection(p_info)
+        d_bundle = p_info.load_dataset_bundle()
 
         post_path = p_info.posteriors_path
         _npz = np.load(post_path)
         V_posteriors = _npz["V_posteriors"]
         U_posteriors = _npz["U_posteriors"]
-        h = PreTrainedClassifier(U_X=U.X, U_posteriors=U_posteriors, V_X=V.X, V_posteriors=V_posteriors)
-        d_bundle = DatasetBundle(L_prevalence, V, U)
+        h = PreTrainedClassifier(
+            U_X=d_bundle.U.X, U_posteriors=U_posteriors, V_X=d_bundle.V.X, V_posteriors=V_posteriors
+        )
 
         return d_bundle, h, p_info
 
@@ -236,7 +242,7 @@ def load_from_collection(p_info: PretainInfo):
         L, V, U = fetch_UCIMulticlassDataset(dataset_name)
         return L.prevalence(), V, U
     elif dataset_collection == "text":
-        return load_text(dataset_name, p_info.h_info.full_name)
+        return load_dataset(dataset_name, p_info.h_info.full_name)
     else:
         raise ValueError(f"Unknown dataset collection: {dataset_collection}")
 
