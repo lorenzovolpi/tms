@@ -9,13 +9,18 @@ from typing import Any, Iterator
 import numpy as np
 import quapy as qp
 import torch
-from datasets import concatenate_datasets, load_dataset
+from datasets import Column, concatenate_datasets, load_dataset
 from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
+from torch.utils.data import DataLoader
 from tqdm import tqdm
 from transformers import (
     AutoModelForSequenceClassification,
     AutoTokenizer,
+    DefaultDataCollator,
     Trainer,
+    TrainerCallback,
+    TrainerControl,
+    TrainerState,
     TrainingArguments,
 )
 from transformers.trainer_callback import EarlyStoppingCallback
@@ -23,7 +28,7 @@ from transformers.trainer_utils import get_last_checkpoint
 
 from data import ClassifierInfo, DatasetInfo, PretainInfo
 from env import PROJECT
-from pretrain.dataset import save_text
+from pretrain.dataset import save_dataset
 from util import get_logger
 
 EXPERIMENT = "pretrain"
@@ -39,6 +44,30 @@ hf_dataset_map = {}
 hf_model_map = {}
 
 
+class LoggingCallback(TrainerCallback):
+    filter_fields = set(
+        ["loss", "learning_rate", "eval_loss", "eval_acc", "eval_runtime", "train_runtime", "train_loss"]
+    )
+
+    def __init__(self, p: PretainInfo) -> None:
+        self.p = p
+
+    def get_logs_str(self, logs: dict):
+        return [f"'{k}': {v:.4f}" if not isinstance(v, int) else f"'{k}': {v}" for k, v in logs.items()]
+
+    def on_log(self, args: TrainingArguments, state: TrainerState, control: TrainerControl, logs=None, **kwargs):
+        if logs is None:
+            return
+
+        logs_with_step = {
+            "step": state.global_step,
+            "epoch": state.epoch,
+            **{k: v for k, v in logs.items() if k in self.filter_fields},
+        }
+        logs_str = "{" + ", ".join(self.get_logs_str(logs_with_step)) + "}"
+        log.info(f"[{self.p.h_info.name}@{self.p.d_info.name}] training log: {logs_str}")
+
+
 def _fdataset(name: str, n: int) -> DatasetInfo:
     proper_name = name.replace("/", "__")
     hf_dataset_map[proper_name] = name
@@ -48,8 +77,7 @@ def _fdataset(name: str, n: int) -> DatasetInfo:
 def _fmodel(name: str, default: bool = True, **kwargs) -> ClassifierInfo:
     proprer_name = name.replace("/", "__")
     hf_model_map[proprer_name] = name
-    args = SentimentArgs(**kwargs)
-    return ClassifierInfo(class_name=proprer_name, params=args.params, default=default)
+    return proprer_name
 
 
 def sout(*args):
@@ -58,68 +86,87 @@ def sout(*args):
 
 
 def gen_datasets() -> Iterator[DatasetInfo]:
-    # yield _fdataset("stanfordnlp/imdb", 2)
+    yield _fdataset("stanfordnlp/imdb", 2)
     yield _fdataset("fancyzhx/yelp_polarity", 2)
     # yield _fdataset("cornell-movie-review-data/rotten_tomatoes", 2)
     yield _fdataset("stanfordnlp/sst2", 2)
+    yield _fdataset("fancyzhx/ag_news", 4)
+    yield _fdataset("fancyzhx/dbpedia_14", 14)
+    yield _fdataset("community-datasets/yahoo_answers_topics", 10)
 
 
-def gen_model_args() -> Iterator[ClassifierInfo]:
-    yield _fmodel(
-        "google-bert/bert-base-uncased",
-        default=True,
-        train_hl=False,
-        lr=1e-3,
-        nepochs=2,
-        max_length=512,
-        warmup_ratio=0.0,
-        weight_decay=0.0,
-    )
-    yield _fmodel(
-        "FacebookAI/roberta-base",
-        default=True,
-        train_hl=False,
-        lr=5e-4,
-        nepochs=2,
-        max_length=512,
-        warmup_ratio=0.05,
-        weight_decay=0.0,
-    )
-    yield _fmodel(
-        "distilbert/distilbert-base-uncased",
-        default=True,
-        train_hl=False,
-        lr=1e-3,
-        nepochs=2,
-        max_length=512,
-        warmup_ratio=0.05,
-        weight_decay=0.0,
-    )
-    # yield _fmodel(
-    #     "google-bert/bert-base-uncased",
-    #     default=True,
-    #     train_hl=True,
-    #     lr=2e-5,
-    #     nepochs=3,
-    #     max_length=512,
-    #     warmup_ratio=0.1,
-    #     weight_decay=0.01,
-    # )
-    # yield _fmodel(
-    #     "FacebookAI/roberta-base",
-    #     default=True,
-    #     train_hl=True,
-    #     lr=2e-5,
-    #     nepochs=3,
-    #     max_length=512,
-    #     warmup_ratio=0.1,
-    #     weight_decay=0.01,
-    # )
+def gen_model_args(d_info: DatasetInfo) -> Iterator[ClassifierInfo]:
+    def ovverride_params(model_name: str, args: SentimentArgs, d_info: DatasetInfo):
+        _overrides = {
+            ("*", "stanfordnlp/imdb"): dict(
+                nepochs=3,
+                lr=2e-5,
+                warmup_steps=200,
+                train_bsize=64,
+                train_hl=True,
+            ),
+            ("*", "stanfordnlp/sst2"): dict(
+                nepochs=3,
+                lr=2e-5,
+                warmup_steps=300,
+                train_bsize=64,
+                train_hl=True,
+            ),
+            ("*", "fancyzhx/yelp_polarity"): dict(
+                nepochs=3,
+                lr=2e-5,
+                warmup_steps=500,
+                train_bsize=64,
+                train_hl=True,
+            ),
+            ("*", "fancyzhx/ag_news"): dict(
+                nepochs=3,
+                lr=1e-3,
+                warmup_steps=500,
+                max_length=256,
+            ),
+            ("*", "fancyzhx/dbpedia_14"): dict(
+                nepochs=2,
+                lr=1e-3,
+                warmup_steps=1000,
+                max_length=256,
+            ),
+            ("*", "community-datasets/yahoo_answers_topics"): dict(
+                nepochs=3,
+                lr=2e-5,
+                warmup_steps=1000,
+                max_length=256,
+                train_bsize=64,
+                train_hl=True,
+            ),
+            # ("microsoft/deberta-v3-base", "stanfordnlp/imdb"): dict(lr=5e-3),
+        }
+
+        d_name = hf_dataset_map.get(d_info.name, d_info.name)
+        or_params = _overrides.get(("*", d_name), {}) | _overrides.get((model_name, d_name), {})
+        return args.update(or_params)
+
+    def mp(name: str, default=True, args=None):
+        args = args if args else SentimentArgs()
+        return dict(name=name, default=default, args=args)
+
+    model_params = [
+        mp("google-bert/bert-base-uncased"),
+        mp("FacebookAI/roberta-base"),
+        mp("distilbert/distilbert-base-uncased"),
+        # mp("microsoft/deberta-v3-base", args=SentimentArgs(embed_bsize=256)),
+        mp("google/electra-base-discriminator"),
+    ]
+    for mp in model_params:
+        proper_name = _fmodel(mp["name"])
+        args = ovverride_params(mp["name"], mp["args"], d_info)
+        yield ClassifierInfo(class_name=proper_name, params=args.params, default=mp["default"])
 
 
 def gen_config():
-    for d_info, h_info in IT.product(gen_datasets(), gen_model_args()):
-        yield d_info, h_info
+    for d_info in gen_datasets():
+        for h_info in gen_model_args(d_info):
+            yield d_info, h_info
 
 
 def get_val_split(dataset):
@@ -127,23 +174,12 @@ def get_val_split(dataset):
     _val_splits = {
         "stanfordnlp/imdb": 0.6,
         "fancyzhx/yelp_polarity": 0.9,
-        "stanfordnlp/sst2": 0.7,
+        "stanfordnlp/sst2": 0.58,
+        "fancyzhx/ag_news": 0.5,
+        "fancyzhx/dbpedia_14": 0.6,
+        "community-datasets/yahoo_answers_topics": 0.82,
     }
     return _val_splits.get(hf_dataset_map.get(dataset, dataset), _default)
-
-
-def get_label_tag(dataset):
-    _default = "label"
-    _label_tags = {}
-    return _label_tags.get(hf_dataset_map.get(dataset, dataset), _default)
-
-
-def get_text_tag(dataset):
-    _default = "text"
-    _label_tags = {
-        "stanfordnlp/sst2": "sentence",
-    }
-    return _label_tags.get(hf_dataset_map.get(dataset, dataset), _default)
 
 
 @dataclass
@@ -155,14 +191,17 @@ class SentimentArgs:
     lr: float = 2e-5
     train_hl: bool = False
     load_bf16: bool = False
-    warmup_ratio: float = 0.1
-    weight_decay: float = 0.0
+    warmup_steps: int = 200
+    weight_decay: float = 0.1
     max_grad_norm: float = 1.0
 
     @property
     def params(self) -> dict[str, Any]:
         # NOTE: asdict makes a deepcopy!
         return asdict(self)
+
+    def update(self, params: dict):
+        return SentimentArgs(**(self.params | params))
 
 
 def get_tr_outdir(p_info: PretainInfo):
@@ -179,16 +218,48 @@ def get_embed_outdir(args):
     return outdir
 
 
+def fix_dataset_fields(d_info, dataset):
+    to_remove = {
+        "stanfordnlp/sst2": ["sentence"],
+        "fancyzhx/dbpedia_14": ["title", "content"],
+        "community-datasets/yahoo_answers_topics": ["question_title", "question_content", "best_answer", "topic"],
+    }
+    d_name = hf_dataset_map.get(d_info.name, d_info.name)
+
+    def combine_fields(split):
+        if d_name == "stanfordnlp/sst2":
+            split["text"] = f"{split['sentence']}"
+        elif d_name == "fancyzhx/dbpedia_14":
+            split["text"] = f"{split['title']}\n{split['content']}"
+        elif d_name == "community-datasets/yahoo_answers_topics":
+            split["text"] = f"{split['question_title']}\n{split['question_content']}\n{split['best_answer']}"
+            split["label"] = split["topic"]
+
+        return split
+
+    dataset = dataset.map(combine_fields)
+    dataset = dataset.remove_columns(to_remove.get(d_name, []))
+
+    return dataset
+
+
 def get_dataset(d_info: DatasetInfo):
     """
     Load dataset and create validation split if does not exist.
     Also check that the number of classes matches the expected number.
     """
     dataset = load_dataset(hf_dataset_map.get(d_info.name, d_info.name))
+    dataset = fix_dataset_fields(d_info, dataset)
 
     if "validation" in dataset:
         trainval = concatenate_datasets([dataset["train"], dataset["validation"]])
         dataset["train"] = trainval
+
+    # for sst2: discard unlabelled test set and split training set using 0.3 ratio for test
+    if hf_dataset_map.get(d_info.name, d_info.name) == "stanfordnlp/sst2":
+        _tmp_dataset = dataset["train"].train_test_split(test_size=0.3, seed=qp.environ["_R_SEED"])
+        dataset["train"] = _tmp_dataset["train"]
+        dataset["test"] = _tmp_dataset["test"]
 
     val_split = get_val_split(d_info.name)
     sout("splitting training set into train/validation...")
@@ -203,7 +274,7 @@ def get_dataset(d_info: DatasetInfo):
     else:
         dataset["fast_eval"] = dataset["validation"]
 
-    n_inferred_classes = dataset["train"].shape[-1]
+    n_inferred_classes = np.unique(dataset["train"]["label"]).shape[0]
     if d_info.n_classes != n_inferred_classes:
         sout(
             f"number of inferred target classes ({n_inferred_classes}) != number of given target classes ({d_info.n_classes})"
@@ -240,7 +311,7 @@ def prepare_model(args: SentimentArgs, model):
 
 
 def tokenize_dataset(args, tokenizer, dataset, dataset_name):
-    text_tag = get_text_tag(dataset_name)
+    text_tag = "text"
 
     def _tokenize_helper(sample):
         return tokenizer(
@@ -256,10 +327,8 @@ def compute_clf_metrics(preds):
     _preds = preds.predictions.argmax(axis=1)
     _labels = preds.label_ids
     acc = accuracy_score(y_true=_labels, y_pred=_preds)
-    recall = recall_score(y_true=_labels, y_pred=_preds)
-    precision = precision_score(y_true=_labels, y_pred=_preds)
     f1 = f1_score(y_true=_labels, y_pred=_preds, average="micro")
-    return {"acc": acc, "recall": recall, "precision": precision, "f1": f1}
+    return {"acc": acc, "f1": f1}
 
 
 def train_model(args: SentimentArgs, p_info: PretainInfo, model, dataset):
@@ -273,7 +342,7 @@ def train_model(args: SentimentArgs, p_info: PretainInfo, model, dataset):
         per_device_train_batch_size=args.train_bsize,
         per_device_eval_batch_size=args.train_bsize * 4,
         lr_scheduler_type="cosine",
-        warmup_ratio=args.warmup_ratio,
+        warmup_steps=args.warmup_steps,
         weight_decay=args.weight_decay,
         max_grad_norm=args.max_grad_norm,
         # eval_strategy="steps",
@@ -299,7 +368,8 @@ def train_model(args: SentimentArgs, p_info: PretainInfo, model, dataset):
         args=trainer_args,
         compute_metrics=compute_clf_metrics,
         callbacks=[
-            EarlyStoppingCallback(early_stopping_patience=3, early_stopping_threshold=1e-4)
+            EarlyStoppingCallback(early_stopping_patience=3, early_stopping_threshold=1e-4),
+            LoggingCallback(p_info),
         ],  # early stopping callback goes here, if needed
     )
     last_ckpt = get_last_checkpoint(training_outdir)
@@ -321,26 +391,37 @@ def get_cls_bertlike(x):
     return cls_emebds
 
 
-def embed(model, tokenizer, data, selection_strategy, dataset_name, args: SentimentArgs):
-    text_tag = get_text_tag(dataset_name)
+def embed(model, data, selection_strategy, args: SentimentArgs):
+    # text_tag = "text"
     # split_logits = []
     split_posteriors = []
     split_hidden_states = []
     split_y = []
-    for batch in batched(tqdm(data), n=args.embed_bsize):
-        texts, labels = zip(*((d[text_tag], d["label"]) for d in batch))
+    dataloader = DataLoader(
+        data.remove_columns(["text"]),
+        batch_size=args.embed_bsize,
+        shuffle=False,
+        collate_fn=DefaultDataCollator(),
+    )
+    # for batch in batched(tqdm(data), n=args.embed_bsize):
+    for batch in tqdm(dataloader, desc="Embedding"):
+        # texts, labels = zip(*((d[text_tag], d["label"]) for d in batch))
+        # labels = [d["label"] for d in batch]
+        inputs = {k: v.to(model.device) for k, v in batch.items() if k != "labels"}
+        labels = batch["labels"].cpu()
         with torch.no_grad():
-            model_inputs = tokenizer(
-                texts, truncation=True, max_length=args.max_length, padding="max_length", return_tensors="pt"
-            )  # pad each batch to max_length
-            output = model(**model_inputs.to(DEVICE), output_hidden_states=True)
+            # model_inputs = tokenizer(
+            #     texts, truncation=True, max_length=args.max_length, padding="max_length", return_tensors="pt"
+            # )  # pad each batch to max_length
+            # output = model(**model_inputs.to(DEVICE), output_hidden_states=True)
+            output = model(**inputs, output_hidden_states=True)
         logits = output.logits
         posteriors = torch.softmax(logits, dim=-1)
         hidden_states = output.hidden_states
         last_hidden_states = hidden_states[-1]
 
         split_y.append(torch.tensor(labels))
-        split_hidden_states.append(selection_strategy(last_hidden_states.cpu().detach()))
+        split_hidden_states.append(selection_strategy(last_hidden_states).cpu().detach())
         # split_logits.append(logits.cpu().detach())
         split_posteriors.append(posteriors.cpu().detach())
 
@@ -382,24 +463,23 @@ def pretrain(d_info: DatasetInfo, h_info: ClassifierInfo, parser_args):
         return
 
     # Get embedddings and logits
-    sout("\nEmbedding...")
     splits = ["validation", "test"]
     embedddings = {}
     posteriors = {}
     for split in splits:
         split_data = dataset[split]
         split_y, split_posteriors, split_last_hiddens = embed(
-            model, tokenizer, data=split_data, selection_strategy=get_cls_bertlike, dataset_name=d_info.name, args=args
+            model, data=split_data, selection_strategy=get_cls_bertlike, args=args
         )
         embedddings[split] = (split_last_hiddens, split_y)
         posteriors[split] = split_posteriors
 
-    label_tag = get_label_tag(d_info.name)
+    label_tag = "label"
     train_labels = np.array(dataset["train"][label_tag])
     classes = np.unique(train_labels)
     train_prev = np.sum(classes.reshape(-1, 1) == train_labels, axis=-1) / train_labels.shape[0]
 
-    save_text(d_info.name, h_info.full_name, classes, train_prev, embedddings)
+    save_dataset(d_info.name, h_info.full_name, classes, train_prev, embedddings)
     log.info(f"[{h_info.name}@{d_info.name}] embeddings saved")
     p_info.dump(V_posteriors=posteriors["validation"], U_posteriors=posteriors["test"])
     log.info(f"[{h_info.name}@{d_info.name}] posteriors saved")
@@ -419,10 +499,10 @@ if __name__ == "__main__":
     parser_args = parser.parse_args()
 
     log.info("-" * 31 + "  start  " + "-" * 31)
-    try:
-        for d_info, h_info in gen_config():
+    for d_info, h_info in gen_config():
+        try:
             pretrain(d_info, h_info, parser_args)
-    except Exception as e:
-        log.error(e)
-        print_exception(e)
+        except Exception as e:
+            log.error(e)
+            print_exception(e)
     log.info("-" * 32 + "  end  " + "-" * 32)
