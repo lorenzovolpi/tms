@@ -10,7 +10,7 @@ def get_dataset_path(domain, dataset_name, model_name):
     return os.path.join(BASEDIR, f"{domain}_{dataset_name}_{model_name}.npz")
 
 
-def save_text(dataset_name, model_name, classes, train_prev, embeds):
+def save_dataset(dataset_name, model_name, classes, train_prev, embeds):
     domain = "text"
     path = get_dataset_path(domain, dataset_name, model_name)
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -27,7 +27,7 @@ def save_text(dataset_name, model_name, classes, train_prev, embeds):
     np.savez_compressed(path, **d)
 
 
-def load_text(dataset_name, model_name):
+def load_dataset(dataset_name, model_name):
     domain = "text"
     path = get_dataset_path(domain, dataset_name, model_name)
     _data = np.load(path)
