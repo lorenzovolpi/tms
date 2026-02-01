@@ -11,7 +11,11 @@ dependencies = [
     "numba>=0.63.1",
     "numpy<2.4.0",
     "pandatex @ git+https://github.com/lorenzovolpi/pandatex.git",
+    "protobuf>=6.33.5",
     "pyarrow>=23.0.0",
+    "sentencepiece>=0.2.1",
+    "tiktoken>=0.12.0",
+    "torchvision[transforms]>=0.25.0",
     "transformers[torch]>=5.0.0",
 ]
 
