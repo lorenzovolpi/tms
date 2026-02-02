@@ -1,14 +1,12 @@
 import os
 from argparse import ArgumentParser
 from dataclasses import asdict, dataclass
-from itertools import batched
 from traceback import print_exception
 from typing import Any, Callable, Iterator
 
 import numpy as np
 import quapy as qp
 import torch
-from accelerate.utils.megatron_lm import num_floating_point_operations
 from datasets import concatenate_datasets, load_dataset
 from sklearn.metrics import accuracy_score, f1_score
 from torch.utils.data import DataLoader
@@ -30,11 +28,10 @@ from transformers.trainer_utils import get_last_checkpoint
 from data import ClassifierInfo, DatasetInfo, PretainInfo
 from env import PROJECT
 from pretrain.dataset import save_dataset
-from pretrain.text import LoggingCallback
 from util import get_logger
 
 EXPERIMENT = "pretrain"
-DOMAIN = "text"
+DOMAIN = "image"
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 VERBOSE = True
@@ -229,32 +226,34 @@ def create_transforms(image_processor, is_train=True):
     """
     Crea le trasformazioni per il dataset.
     """
+    if isinstance(image_processor.size, dict):
+        if "height" in image_processor.size:
+            size = image_processor.size["height"]
+        elif "shortest_edge" in image_processor.size:
+            size = image_processor.size["shortest_edge"]
+        else:
+            # Prendi il primo valore disponibile
+            size = list(image_processor.size.values())[0]
+    else:
+        # Se size è un intero diretto
+        size = image_processor.size
+
     # Normalizzazione dal processor del modello
     normalize = Normalize(mean=image_processor.image_mean, std=image_processor.image_std)
 
     if is_train:
-        transforms = Compose(
-            [
-                RandomResizedCrop(image_processor.size["height"]),
-                RandomHorizontalFlip(),
-                ToTensor(),
-                normalize,
-            ]
-        )
+        transforms = Compose([RandomResizedCrop(size), RandomHorizontalFlip(), ToTensor(), normalize])
     else:
-        transforms = Compose(
-            [
-                Resize((image_processor.size["height"], image_processor.size["width"])),
-                ToTensor(),
-                normalize,
-            ]
-        )
+        transforms = Compose([Resize((size, size)), ToTensor(), normalize])
 
     return transforms
 
 
-def preprocess_train(examples, transforms):
+def preprocess_images(examples, transforms):
     """Preprocessa le immagini di training."""
+    if "image" not in examples and "pixel_values" in examples:
+        return examples
+
     # Gestisce sia MNIST (grayscale) che CIFAR (RGB)
     images = examples["image"]
 
@@ -266,20 +265,7 @@ def preprocess_train(examples, transforms):
         processed_images.append(transforms(img))
 
     examples["pixel_values"] = processed_images
-    return examples
-
-
-def preprocess_val(examples, transforms):
-    """Preprocessa le immagini di validation/test."""
-    images = examples["image"]
-
-    processed_images = []
-    for img in images:
-        if img.mode != "RGB":
-            img = img.convert("RGB")
-        processed_images.append(transforms(img))
-
-    examples["pixel_values"] = processed_images
+    examples = {k: v for k, v in examples.items() if k not in ["image"]}
     return examples
 
 
@@ -287,14 +273,8 @@ def preprocess_dataset(args: VisionArgs, image_processor, dataset):
     train_transforms = create_transforms(image_processor, is_train=True)
     val_transforms = create_transforms(image_processor, is_train=False)
 
-    dataset["train"] = dataset["train"].with_transform(lambda examples: preprocess_train(examples, train_transforms))
-    dataset["validation"] = dataset["validation"].with_transform(
-        lambda examples: preprocess_val(examples, val_transforms)
-    )
-    dataset["fast_eval"] = dataset["fast_eval"].with_transform(
-        lambda examples: preprocess_val(examples, val_transforms)
-    )
-    dataset["test"] = dataset["test"].with_transform(lambda examples: preprocess_val(examples, val_transforms))
+    for split in ["train", "validation", "fast_eval", "test"]:
+        dataset[split] = dataset[split].with_transform(lambda examples: preprocess_images(examples, train_transforms))
 
     return dataset
 
@@ -349,7 +329,7 @@ def train_model(args: VisionArgs, p_info: PretainInfo, model, dataset):
         warmup_steps=args.warmup_steps,
         weight_decay=args.weight_decay,
         max_grad_norm=args.max_grad_norm,
-        evaluation_strategy="epoch",
+        eval_strategy="epoch",
         logging_steps=50,
         bf16=True,
         metric_for_best_model="acc",
