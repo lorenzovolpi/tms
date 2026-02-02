@@ -212,6 +212,15 @@ class PretainInfo:
         d_bundle = DatasetBundle(L_prevalence, V, U)
         return d_bundle
 
+    def load_pretrained_classifier(self, d_bundle: DatasetBundle):
+        post_path = self.posteriors_path
+        _npz = np.load(post_path)
+        V_posteriors = _npz["V_posteriors"]
+        U_posteriors = _npz["U_posteriors"]
+        return PreTrainedClassifier(
+            U_X=d_bundle.U.X, U_posteriors=U_posteriors, V_X=d_bundle.V.X, V_posteriors=V_posteriors
+        )
+
     @classmethod
     def load(cls, path: str, fast: bool = False) -> Tuple[DatasetBundle, PreTrainedClassifier, Self] | Self:
         with open(path, "rb") as f:
@@ -221,13 +230,14 @@ class PretainInfo:
 
         d_bundle = p_info.load_dataset_bundle()
 
-        post_path = p_info.posteriors_path
-        _npz = np.load(post_path)
-        V_posteriors = _npz["V_posteriors"]
-        U_posteriors = _npz["U_posteriors"]
-        h = PreTrainedClassifier(
-            U_X=d_bundle.U.X, U_posteriors=U_posteriors, V_X=d_bundle.V.X, V_posteriors=V_posteriors
-        )
+        h = p_info.load_pretrained_classifier(d_bundle)
+        # post_path = p_info.posteriors_path
+        # _npz = np.load(post_path)
+        # V_posteriors = _npz["V_posteriors"]
+        # U_posteriors = _npz["U_posteriors"]
+        # h = PreTrainedClassifier(
+        #     U_X=d_bundle.U.X, U_posteriors=U_posteriors, V_X=d_bundle.V.X, V_posteriors=V_posteriors
+        # )
 
         return d_bundle, h, p_info
 
