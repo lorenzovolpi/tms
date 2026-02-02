@@ -5,6 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12.8"
 dependencies = [
+    "accelerate>=1.12.0",
     "cap-ml @ git+https://github.com/lorenzovolpi/cap-ml.git",
     "datasets>=4.5.0",
     "fastparquet>=2025.12.0",
@@ -15,7 +16,6 @@ dependencies = [
     "pyarrow>=23.0.0",
     "sentencepiece>=0.2.1",
     "tiktoken>=0.12.0",
-    "torchvision[transforms]>=0.25.0",
     "transformers[torch]>=5.0.0",
 ]
 
