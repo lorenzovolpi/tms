@@ -1,16 +1,14 @@
-import itertools as IT
 import os
 from argparse import ArgumentParser
 from dataclasses import asdict, dataclass
-from itertools import batched
 from traceback import print_exception
 from typing import Any, Iterator
 
 import numpy as np
 import quapy as qp
 import torch
-from datasets import Column, concatenate_datasets, load_dataset
-from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
+from datasets import concatenate_datasets, load_dataset
+from sklearn.metrics import accuracy_score, f1_score
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from transformers import (
