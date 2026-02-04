@@ -117,21 +117,21 @@ def gen_model_args(d_info: DatasetInfo) -> Iterator[ClassifierInfo]:
             ("*", "mnist"): dict(nepochs=10, lr=5e-4, warmup_steps=200, train_bsize=64, train_hl=True, weight_decay=0.05),
             ("*", "cifar10"): dict(nepochs=10, lr=5e-4, warmup_steps=200, train_bsize=64, train_hl=True, weight_decay=0.05),
             ("*", "cifar100"): dict(nepochs=10, lr=3e-4, warmup_steps=200, train_bsize=64, train_hl=True, weight_decay=0.05),
-            ("microsoft/resnet-50", "mnist"): dict(lr=5e-4, nepochs=10, weight_decay=0.05), # 0.9902
-            ("microsoft/resnet-50", "cifar10"): dict(lr=5e-4, nepochs=10, weight_decay=0.05), # 0.9594
-            ("microsoft/resnet-50", "cifar100"): dict(lr=3e-4, nepochs=10, weight_decay=0.05), # 0.8287
-            ("facebook/convnext-tiny-224", "mnist"): dict(lr=5e-4, nepochs=10, weight_decay=0.05), # 0.9924
-            ("facebook/convnext-tiny-224", "cifar10"): dict(lr=5e-4, nepochs=10, weight_decay=0.05), # 0.9736
-            ("facebook/convnext-tiny-224", "cifar100"): dict(lr=3e-4, nepochs=10, weight_decay=0.05), # 0.8678
-            ("google/efficientnet-b0", "mnist"): dict(lr=5e-4, nepochs=10, weight_decay=0.05), # 
-            ("google/efficientnet-b0", "cifar10"): dict(lr=5e-4, nepochs=10, weight_decay=0.05), # 
-            ("google/efficientnet-b0", "cifar100"): dict(lr=3e-4, nepochs=10, weight_decay=0.05), # 
-            ("google/vit-base-patch16-224", "mnist"): dict(lr=5e-4, nepochs=10, weight_decay=0.05), # 
-            ("google/vit-base-patch16-224", "cifar10"): dict(lr=5e-4, nepochs=10, weight_decay=0.05), # 
-            ("google/vit-base-patch16-224", "cifar100"): dict(lr=3e-4, nepochs=10, weight_decay=0.05), # 
-            ("microsoft/swin-tiny-patch4-window7-224", "mnist"): dict(lr=5e-4, nepochs=10, weight_decay=0.05), # 
-            ("microsoft/swin-tiny-patch4-window7-224", "cifar10"): dict(lr=5e-4, nepochs=10, weight_decay=0.05), # 
-            ("microsoft/swin-tiny-patch4-window7-224", "cifar100"): dict(lr=3e-4, nepochs=10, weight_decay=0.05), # 
+            ("microsoft/resnet-50", "mnist"): dict(), # 0.9902
+            ("microsoft/resnet-50", "cifar10"): dict(), # 0.9594
+            ("microsoft/resnet-50", "cifar100"): dict(), # 0.8287
+            ("facebook/convnext-tiny-224", "mnist"): dict(), # 0.9924
+            ("facebook/convnext-tiny-224", "cifar10"): dict(), # 0.9736
+            ("facebook/convnext-tiny-224", "cifar100"): dict(), # 0.8678
+            ("google/efficientnet-b0", "mnist"): dict(), # 0.9895
+            ("google/efficientnet-b0", "cifar10"): dict(), # 0.9633
+            ("google/efficientnet-b0", "cifar100"): dict(), # 0.8044
+            ("google/vit-base-patch16-224", "mnist"): dict(), # 0.9929
+            ("google/vit-base-patch16-224", "cifar10"): dict(), # 0.9653
+            ("google/vit-base-patch16-224", "cifar100"): dict(), # 0.8861
+            ("microsoft/swin-tiny-patch4-window7-224", "mnist"): dict(), # 0.9905
+            ("microsoft/swin-tiny-patch4-window7-224", "cifar10"): dict(), # 0.9545
+            ("microsoft/swin-tiny-patch4-window7-224", "cifar100"): dict(), # 0.8346
         }
 
         d_name = hf_dataset_map.get(d_info.name, d_info.name)
@@ -143,8 +143,8 @@ def gen_model_args(d_info: DatasetInfo) -> Iterator[ClassifierInfo]:
         return dict(name=name, default=default, args=args)
 
     model_params = [
-        # mp("microsoft/resnet-50"),
-        # mp("facebook/convnext-tiny-224"),
+        mp("microsoft/resnet-50"),
+        mp("facebook/convnext-tiny-224"),
         mp("google/efficientnet-b0"),
         mp("google/vit-base-patch16-224"),
         mp("microsoft/swin-tiny-patch4-window7-224"),
@@ -440,7 +440,8 @@ def embed(model, data, selection_strategy: Callable, args: VisionArgs):
     split_hidden_states = []
     split_y = []
     dataloader = DataLoader(
-        data.remove_columns(["image"]),
+        # data.remove_columns(["image"]),
+        data,
         batch_size=args.embed_bsize,
         shuffle=False,
         collate_fn=DefaultDataCollator(),
