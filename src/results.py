@@ -164,21 +164,6 @@ class Results(ABC):
             [Results(pd.concat(new_r)) for new_r in new_ress] if len(new_ress) > 1 else Results(pd.concat(new_ress[0]))
         )
 
-    def ensamble_ms(self, method: str, rank_label="ranking_vals") -> "Results":
-        info_paths = load_info_paths(domain=env.DOMAIN)
-        p_infos = [PretainInfo.load(p, fast=True) for p in info_paths]
-        accs = get_acc_names()
-        for acc_name in accs:
-            edf = self.df.loc[(self.df["method"] == method) & (self.df["acc_name"] == acc_name), :]
-            datasets = edf["dataset"].unique()
-            for dataset in datasets:
-                edf = edf.loc[edf["dataset"] == dataset, :]
-                f_pinfos = [p for p in p_infos if p.d_info.name == dataset]
-                d_bundle = f_pinfos[0].load_dataset_bundle()
-                for uid, Ui in enumerate(d_bundle.test_prot()):
-                    edf = edf.loc[edf["uids"] == uid, :]
-                    # TODO: complete
-
     def method_ms(self, method: str, classifier_class=None, rank_label="ranking_vals") -> "Results":
         # methods = get_CAP_method_names()
         accs = get_acc_names()
