@@ -10,7 +10,17 @@ import torch
 from datasets import concatenate_datasets, load_dataset
 from sklearn.metrics import accuracy_score, f1_score
 from torch.utils.data import DataLoader
-from torchvision.transforms import Compose, Normalize, RandomHorizontalFlip, RandomResizedCrop, Resize, ToTensor
+from torchvision.transforms import (
+    ColorJitter,
+    Compose,
+    Normalize,
+    RandomCrop,
+    RandomErasing,
+    RandomHorizontalFlip,
+    RandomResizedCrop,
+    Resize,
+    ToTensor,
+)
 from tqdm import tqdm
 from transformers import (
     AutoImageProcessor,
@@ -52,7 +62,17 @@ class LoggingCallback(TrainerCallback):
         self.p = p
 
     def get_logs_str(self, logs: dict):
-        return [f"'{k}': {v:.4f}" if not isinstance(v, int) else f"'{k}': {v}" for k, v in logs.items()]
+        strs = []
+        for k, v in logs.items():
+            if k == "learning_rate":
+                strs.append(f"'{k}': {v:.4E}")
+            elif isinstance(v, int):
+                strs.append(f"'{k}': {v}")
+            else:
+                strs.append(f"'{k}': {v:.4f}")
+
+        return strs
+        # return [f"'{k}': {v:.4f}" if not isinstance(v, int) else f"'{k}': {v}" for k, v in logs.items()]
 
     def on_log(self, args: TrainingArguments, state: TrainerState, control: TrainerControl, logs=None, **kwargs):
         if logs is None:
@@ -90,24 +110,28 @@ def gen_datasets() -> Iterator[DatasetInfo]:
     yield _fdataset("cifar100", 100)
 
 
+# fmt: off
 def gen_model_args(d_info: DatasetInfo) -> Iterator[ClassifierInfo]:
     def ovverride_params(model_name: str, args: VisionArgs, d_info: DatasetInfo):
         _overrides = {
-            ("*", "mnist"): dict(
-                nepochs=5,
-                lr=2e-3,
-                warmup_steps=200,
-            ),
-            ("*", "cifar10"): dict(
-                nepochs=5,
-                lr=2e-3,
-                warmup_steps=400,
-            ),
-            ("*", "cifar100"): dict(
-                nepochs=3,
-                lr=1e-3,
-                warmup_steps=500,
-            ),
+            ("*", "mnist"): dict(nepochs=10, lr=5e-4, warmup_steps=200, train_bsize=64, train_hl=True, weight_decay=0.05),
+            ("*", "cifar10"): dict(nepochs=10, lr=5e-4, warmup_steps=200, train_bsize=64, train_hl=True, weight_decay=0.05),
+            ("*", "cifar100"): dict(nepochs=10, lr=3e-4, warmup_steps=200, train_bsize=64, train_hl=True, weight_decay=0.05),
+            ("microsoft/resnet-50", "mnist"): dict(lr=5e-4, nepochs=10, weight_decay=0.05), # 0.9902
+            ("microsoft/resnet-50", "cifar10"): dict(lr=5e-4, nepochs=10, weight_decay=0.05), # 0.9594
+            ("microsoft/resnet-50", "cifar100"): dict(lr=3e-4, nepochs=10, weight_decay=0.05), # 0.8287
+            ("facebook/convnext-tiny-224", "mnist"): dict(lr=5e-4, nepochs=10, weight_decay=0.05), # 0.9924
+            ("facebook/convnext-tiny-224", "cifar10"): dict(lr=5e-4, nepochs=10, weight_decay=0.05), # 0.9736
+            ("facebook/convnext-tiny-224", "cifar100"): dict(lr=3e-4, nepochs=10, weight_decay=0.05), # 0.8678
+            ("google/efficientnet-b0", "mnist"): dict(lr=5e-4, nepochs=10, weight_decay=0.05), # 
+            ("google/efficientnet-b0", "cifar10"): dict(lr=5e-4, nepochs=10, weight_decay=0.05), # 
+            ("google/efficientnet-b0", "cifar100"): dict(lr=3e-4, nepochs=10, weight_decay=0.05), # 
+            ("google/vit-base-patch16-224", "mnist"): dict(lr=5e-4, nepochs=10, weight_decay=0.05), # 
+            ("google/vit-base-patch16-224", "cifar10"): dict(lr=5e-4, nepochs=10, weight_decay=0.05), # 
+            ("google/vit-base-patch16-224", "cifar100"): dict(lr=3e-4, nepochs=10, weight_decay=0.05), # 
+            ("microsoft/swin-tiny-patch4-window7-224", "mnist"): dict(lr=5e-4, nepochs=10, weight_decay=0.05), # 
+            ("microsoft/swin-tiny-patch4-window7-224", "cifar10"): dict(lr=5e-4, nepochs=10, weight_decay=0.05), # 
+            ("microsoft/swin-tiny-patch4-window7-224", "cifar100"): dict(lr=3e-4, nepochs=10, weight_decay=0.05), # 
         }
 
         d_name = hf_dataset_map.get(d_info.name, d_info.name)
@@ -119,8 +143,8 @@ def gen_model_args(d_info: DatasetInfo) -> Iterator[ClassifierInfo]:
         return dict(name=name, default=default, args=args)
 
     model_params = [
-        mp("microsoft/resnet-50"),
-        mp("facebook/convnext-tiny-224"),
+        # mp("microsoft/resnet-50"),
+        # mp("facebook/convnext-tiny-224"),
         mp("google/efficientnet-b0"),
         mp("google/vit-base-patch16-224"),
         mp("microsoft/swin-tiny-patch4-window7-224"),
@@ -129,6 +153,8 @@ def gen_model_args(d_info: DatasetInfo) -> Iterator[ClassifierInfo]:
         proper_name = _fmodel(mp["name"])
         args = ovverride_params(mp["name"], mp["args"], d_info)
         yield ClassifierInfo(class_name=proper_name, params=args.params, default=mp["default"])
+
+# fmt: on
 
 
 def gen_config():
@@ -222,7 +248,7 @@ def get_dataset(d_info: DatasetInfo):
     return dataset
 
 
-def create_transforms(image_processor, is_train=True):
+def create_transforms(image_processor, d_name, is_train=True):
     """
     Crea le trasformazioni per il dataset.
     """
@@ -242,7 +268,24 @@ def create_transforms(image_processor, is_train=True):
     normalize = Normalize(mean=image_processor.image_mean, std=image_processor.image_std)
 
     if is_train:
-        transforms = Compose([RandomResizedCrop(size), RandomHorizontalFlip(), ToTensor(), normalize])
+        if d_name == "mnist":
+            transforms = Compose([RandomResizedCrop(size), RandomHorizontalFlip(), ToTensor(), normalize])
+        elif d_name == "cifar10":
+            transforms = Compose(
+                [Resize(size), RandomCrop(size, padding=4), RandomHorizontalFlip(p=0.5), ToTensor(), normalize]
+            )
+        elif d_name == "cifar100":
+            transforms = Compose(
+                [
+                    Resize(size),
+                    RandomCrop(size, padding=4),
+                    RandomHorizontalFlip(p=0.5),
+                    ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
+                    ToTensor(),
+                    normalize,
+                    RandomErasing(p=0.5, scale=(0.02, 0.33), ratio=(0.3, 3.3)),
+                ]
+            )
     else:
         transforms = Compose([Resize((size, size)), ToTensor(), normalize])
 
@@ -269,12 +312,14 @@ def preprocess_images(examples, transforms):
     return examples
 
 
-def preprocess_dataset(args: VisionArgs, image_processor, dataset):
-    train_transforms = create_transforms(image_processor, is_train=True)
-    val_transforms = create_transforms(image_processor, is_train=False)
+def preprocess_dataset(args: VisionArgs, image_processor, dataset, d_name):
+    d_name = hf_dataset_map.get(d_name, d_name)
+    train_transforms = create_transforms(image_processor, d_name, is_train=True)
+    val_transforms = create_transforms(image_processor, d_name, is_train=False)
 
-    for split in ["train", "validation", "fast_eval", "test"]:
-        dataset[split] = dataset[split].with_transform(lambda examples: preprocess_images(examples, train_transforms))
+    dataset["train"] = dataset["train"].with_transform(lambda examples: preprocess_images(examples, train_transforms))
+    for split in ["validation", "fast_eval", "test"]:
+        dataset[split] = dataset[split].with_transform(lambda examples: preprocess_images(examples, val_transforms))
 
     return dataset
 
@@ -357,12 +402,13 @@ def train_model(args: VisionArgs, p_info: PretainInfo, model, dataset):
         ],
     )
 
-    last_ckpt = get_last_checkpoint(training_outdir)
-    if last_ckpt is None:
-        sout("\nTraining...")
-    else:
-        sout("\nLoading last checkpoint...")
-    trainer.train(resume_from_checkpoint=last_ckpt)
+    # last_ckpt = get_last_checkpoint(training_outdir)
+    # if last_ckpt is None:
+    #     sout("\nTraining...")
+    # else:
+    #     sout("\nLoading last checkpoint...")
+    # trainer.train(resume_from_checkpoint=last_ckpt)
+    trainer.train()
 
     return trainer, training_args
 
@@ -447,7 +493,7 @@ def pretrain(d_info: DatasetInfo, h_info: ClassifierInfo, parser_args):
     model = prepare_model(args, model)
     log.info(f"[{h_info.name}@{d_info.name}] model loaded")
 
-    dataset = preprocess_dataset(args, image_processor, dataset)
+    dataset = preprocess_dataset(args, image_processor, dataset, d_info.name)
     log.info(f"[{h_info.name}@{d_info.name}] dataset pre-processed")
 
     train_model(args, p_info, model, dataset)
