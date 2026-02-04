@@ -28,7 +28,7 @@ def load_results(dataset):
     ), method
 
 
-def transform_ranking_vals(rvs, temperature=0.05):
+def transform_ranking_vals(rvs, temperature=0.01):
     return softmax(rvs / temperature, axis=-1)
 
 
