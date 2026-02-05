@@ -39,18 +39,18 @@ dataset_map = {
 
 def ms_selection():
     return {
-        "oracle": False,
+        "oracle": True,
         "default": [],
         "method": [
-            ("IMS", "LR"),
-            ("IMS", "kNN"),
-            ("IMS", "SVM"),
-            ("IMS", "MLP"),
+            # ("IMS", "LR"),
+            # ("IMS", "kNN"),
+            # ("IMS", "SVM"),
+            # ("IMS", "MLP"),
             ("IMS", None),
             ("TMS_LEAP", None),
             ("TMS_RQBS", None),
-            ("TMS_PrediQuant", None),
-            ("TMS_DoC", None),
+            # ("TMS_PrediQuant", None),
+            # ("TMS_DoC", None),
         ],
     }
 
@@ -60,7 +60,8 @@ def gen_tables():
     domain = "classic"
     rank_label = "ranking_vals"
 
-    base_dir = os.path.join(env.root_dir, experiment)
+    main_base_dir = os.path.join(env.root_dir, "main")
+    ensamble_base_dir = os.path.join(env.root_dir, "ensamble")
 
     def add_to_table(tbl: Table, df: pd.DataFrame, dataset, methods):
         for method in methods:
@@ -71,10 +72,10 @@ def gen_tables():
 
     tbls = []
     accs = get_acc_names()
-    datasets = get_existing_dataset_names(experiment, domain)
+    datasets = get_existing_dataset_names("main", domain)
     for acc in accs:
-        name = f"{experiment}_{acc}"
-        tbl = Table(name=name)
+        name = f"{experiment}_{domain}_{acc}"
+        tbl = Table(name=name, oracles=["oracle"])
         tbl.format = Format(
             lower_is_better=False,
             mean_prec=3,
@@ -88,8 +89,8 @@ def gen_tables():
             simple_stat=True,
         )
         for dataset in datasets:
-            res = (
-                Results.load(base_dir=base_dir, acc_name=acc, dataset=dataset, domain=domain)
+            main_res = (
+                Results.load(base_dir=main_base_dir, acc_name=acc, dataset=dataset, domain=domain)
                 # .split_by_shift(prevs=0.5)
                 .model_selection(selection=ms_selection(), rank_label=rank_label)
                 .map_column_values("method", method_map)
@@ -97,6 +98,14 @@ def gen_tables():
                 .apply_to_column("dataset", decorate_dataset)
                 .apply_to_column("true_cts", lambda ct: acc_from_ct(acc, ct), new_col="true_accs")
             )
+            ensamble_res = (
+                Results.load(base_dir=ensamble_base_dir, acc_name=acc, dataset=dataset, domain=domain)
+                .map_column_values("method", method_map)
+                .map_column_values("dataset", dataset_map)
+                .apply_to_column("dataset", decorate_dataset)
+                .apply_to_column("true_cts", lambda ct: acc_from_ct(acc, ct), new_col="true_accs")
+            )
+            res = Results.concat([main_res, ensamble_res])
             _methods = [method_map.get(m, m) for m in res.unique_column_values("method")]
             _dataset = decorate_dataset(dataset_map.get(dataset, dataset))
             tbl = add_to_table(tbl, res.df, _dataset, _methods)
@@ -107,22 +116,23 @@ def gen_tables():
 
     table_dir = os.path.join(env.root_dir, "tables")
     os.makedirs(table_dir, exist_ok=True)
-    pickle_path = os.path.join(table_dir, f"{experiment}.pickle")
+    pickle_path = os.path.join(table_dir, f"{experiment}_{domain}.pickle")
     with open(pickle_path, "wb") as f:
         pickle.dump(tbls, f)
 
 
 def gen_pdf():
     experiment = main.EXPERIMENT
+    domain = "classic"
     table_dir = os.path.join(env.root_dir, "tables")
     os.makedirs(table_dir, exist_ok=True)
-    pickle_path = os.path.join(table_dir, f"{experiment}.pickle")
+    pickle_path = os.path.join(table_dir, f"{experiment}_{domain}.pickle")
     assert os.path.exists(pickle_path), "pickle file does not exist"
 
     with open(pickle_path, "rb") as f:
         tbls = pickle.load(f)
 
-    pdf_path = os.path.join(table_dir, f"{experiment}.pdf")
+    pdf_path = os.path.join(table_dir, f"{experiment}_{domain}.pdf")
     new_commands = [
         "\\newcommand{\\leapall}{LEAP-All}",
         "\\newcommand{\\rqbsall}{RQBS-All}",
@@ -139,8 +149,8 @@ def gen_pdf():
         "\\newcommand{\\nomstsvm}{$\\emptyset$-TSVM}",
         "\\newcommand{\\nomsmlp}{$\\emptyset$-MLP}",
     ]
-    column_alignment = [5, 4], "c"
-    additional_headers = [("IMS", 5), ("TMS", 4)]
+    column_alignment = [1, 1, 2, 1], "c"
+    additional_headers = [("oracle", 1), ("IMS", 1), ("TMS", 2), ("Ens", 1)]
     Table.LatexPDF(
         pdf_path,
         tables=tbls,
