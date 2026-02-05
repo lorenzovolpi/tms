@@ -85,12 +85,11 @@ def sout(*args):
 
 def gen_datasets() -> Iterator[DatasetInfo]:
     yield _fdataset("stanfordnlp/imdb", 2)
-    yield _fdataset("fancyzhx/yelp_polarity", 2)
-    # yield _fdataset("cornell-movie-review-data/rotten_tomatoes", 2)
-    yield _fdataset("stanfordnlp/sst2", 2)
-    yield _fdataset("fancyzhx/ag_news", 4)
-    yield _fdataset("fancyzhx/dbpedia_14", 14)
-    yield _fdataset("community-datasets/yahoo_answers_topics", 10)
+    # yield _fdataset("fancyzhx/yelp_polarity", 2)
+    # yield _fdataset("stanfordnlp/sst2", 2)
+    # yield _fdataset("fancyzhx/ag_news", 4)
+    # yield _fdataset("fancyzhx/dbpedia_14", 14)
+    # yield _fdataset("community-datasets/yahoo_answers_topics", 10)
 
 
 def gen_model_args(d_info: DatasetInfo) -> Iterator[ClassifierInfo]:
@@ -149,11 +148,11 @@ def gen_model_args(d_info: DatasetInfo) -> Iterator[ClassifierInfo]:
         return dict(name=name, default=default, args=args)
 
     model_params = [
-        mp("google-bert/bert-base-uncased"),
-        mp("FacebookAI/roberta-base"),
-        mp("distilbert/distilbert-base-uncased"),
-        # mp("microsoft/deberta-v3-base", args=SentimentArgs(embed_bsize=256)),
-        mp("google/electra-base-discriminator"),
+        # mp("google-bert/bert-base-uncased"),
+        # mp("FacebookAI/roberta-base"),
+        # mp("distilbert/distilbert-base-uncased"),
+        mp("microsoft/deberta-v3-base", args=SentimentArgs(embed_bsize=256)),
+        # mp("google/electra-base-discriminator"),
     ]
     for mp in model_params:
         proper_name = _fmodel(mp["name"])
