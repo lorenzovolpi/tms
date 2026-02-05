@@ -1,6 +1,7 @@
 import itertools as IT
 import os
 from argparse import ArgumentParser
+from collections import defaultdict
 from time import time
 
 import numpy as np
@@ -11,7 +12,7 @@ from scipy.special import softmax
 from tqdm import tqdm
 
 import env
-from config import acc_from_ct, get_acc_names
+from config import acc_from_ct, get_acc_names, get_existing_dataset_names
 from data import PretainInfo, load_info_paths
 from results import RDF, Results, ResultsDataFrame
 from util import get_plain_prev
@@ -107,38 +108,35 @@ def show():
             "method": [("TMS_LEAP", None), ("IMS", None)],
         }
 
-    datasets = ["german", "mammographic", "semeion", "spambase", "tictactoe"]
+    datasets = get_existing_dataset_names("main", env.DOMAIN)
     accs = get_acc_names()
     methods = ["TMS_LEAP"]
     main_base_dir = os.path.join(env.root_dir, "main")
     ensamble_base_dir = os.path.join(env.root_dir, "ensamble")
-    ress = []
+    ress = defaultdict(list)
     for dataset, acc, method in IT.product(datasets, accs, methods):
         _path = get_ensamble_path(acc, dataset, method)
         if not os.path.exists(_path):
             tqdm.write(f"{acc}-{method}-{dataset} does not exist, skipping.")
             continue
 
-        try:
-            main_res = (
-                Results.load(base_dir=main_base_dir, acc_name=acc, dataset=dataset, domain=env.DOMAIN)
-                .model_selection(selection=ms_selection(), rank_label="ranking_vals")
-                .apply_to_column("true_cts", lambda ct: acc_from_ct(acc, ct), new_col="true_accs")
-            )
-        except ValueError as e:
-            print(f"main {dataset}-{acc}-{method}: {e}")
+        main_res = (
+            Results.load(base_dir=main_base_dir, acc_name=acc, dataset=dataset, domain=env.DOMAIN)
+            .model_selection(selection=ms_selection(), rank_label="ranking_vals")
+            .apply_to_column("true_cts", lambda ct: acc_from_ct(acc, ct), new_col="true_accs")
+        )
 
-        try:
-            ensamble_res = Results.load(
-                base_dir=ensamble_base_dir, acc_name=acc, dataset=dataset, domain=env.DOMAIN
-            ).apply_to_column("true_cts", lambda ct: acc_from_ct(acc, ct), new_col="true_accs")
-        except ValueError as e:
-            print(f"ensamble {dataset}-{acc}-{method}: {e}")
+        ensamble_res = Results.load(
+            base_dir=ensamble_base_dir, acc_name=acc, dataset=dataset, domain=env.DOMAIN
+        ).apply_to_column("true_cts", lambda ct: acc_from_ct(acc, ct), new_col="true_accs")
 
-        ress.append(Results.concat([main_res, ensamble_res]))
+        ress[acc].append(Results.concat([main_res, ensamble_res]))
 
-    pivot = pd.pivot_table(Results.concat(ress).df, index=["dataset"], columns=["method"], values=["true_accs"])
-    print(pivot.to_string())
+    for acc in accs:
+        pivot = pd.pivot_table(
+            Results.concat(ress[acc]).df, index=["dataset"], columns=["method"], values=["true_accs"]
+        )
+        print(acc, "\n", pivot.to_string(), "\n")
 
 
 if __name__ == "__main__":
