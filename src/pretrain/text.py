@@ -85,8 +85,8 @@ def sout(*args):
 
 def gen_datasets() -> Iterator[DatasetInfo]:
     yield _fdataset("stanfordnlp/imdb", 2)
-    # yield _fdataset("fancyzhx/yelp_polarity", 2)
-    # yield _fdataset("stanfordnlp/sst2", 2)
+    yield _fdataset("fancyzhx/yelp_polarity", 2)
+    yield _fdataset("stanfordnlp/sst2", 2)
     # yield _fdataset("fancyzhx/ag_news", 4)
     # yield _fdataset("fancyzhx/dbpedia_14", 14)
     # yield _fdataset("community-datasets/yahoo_answers_topics", 10)
@@ -99,44 +99,41 @@ def gen_model_args(d_info: DatasetInfo) -> Iterator[ClassifierInfo]:
                 nepochs=3,
                 lr=2e-5,
                 warmup_steps=200,
-                train_bsize=64,
                 train_hl=True,
             ),
             ("*", "stanfordnlp/sst2"): dict(
                 nepochs=3,
                 lr=2e-5,
                 warmup_steps=300,
-                train_bsize=64,
                 train_hl=True,
             ),
             ("*", "fancyzhx/yelp_polarity"): dict(
                 nepochs=3,
                 lr=2e-5,
                 warmup_steps=500,
-                train_bsize=64,
                 train_hl=True,
             ),
             ("*", "fancyzhx/ag_news"): dict(
                 nepochs=3,
-                lr=1e-3,
+                lr=2e-5,
                 warmup_steps=500,
                 max_length=256,
+                train_hl=True,
             ),
             ("*", "fancyzhx/dbpedia_14"): dict(
-                nepochs=2,
-                lr=1e-3,
+                nepochs=3,
+                lr=2e-5,
                 warmup_steps=1000,
                 max_length=256,
+                train_hl=True,
             ),
             ("*", "community-datasets/yahoo_answers_topics"): dict(
                 nepochs=3,
                 lr=2e-5,
                 warmup_steps=1000,
                 max_length=256,
-                train_bsize=64,
                 train_hl=True,
             ),
-            # ("microsoft/deberta-v3-base", "stanfordnlp/imdb"): dict(lr=5e-3),
         }
 
         d_name = hf_dataset_map.get(d_info.name, d_info.name)
@@ -148,11 +145,11 @@ def gen_model_args(d_info: DatasetInfo) -> Iterator[ClassifierInfo]:
         return dict(name=name, default=default, args=args)
 
     model_params = [
-        # mp("google-bert/bert-base-uncased"),
-        # mp("FacebookAI/roberta-base"),
-        # mp("distilbert/distilbert-base-uncased"),
-        mp("microsoft/deberta-v3-base", args=SentimentArgs(embed_bsize=256)),
-        # mp("google/electra-base-discriminator"),
+        mp("google-bert/bert-base-uncased"),
+        mp("FacebookAI/roberta-base"),
+        mp("distilbert/distilbert-base-uncased"),
+        mp("microsoft/deberta-v3-base", args=SentimentArgs(train_bsize=32, embed_bsize=256)),
+        mp("google/electra-base-discriminator"),
     ]
     for mp in model_params:
         proper_name = _fmodel(mp["name"])
@@ -183,7 +180,7 @@ def get_val_split(dataset):
 class SentimentArgs:
     max_length: int = 512
     nepochs: int = 2
-    train_bsize: int = 32
+    train_bsize: int = 64
     embed_bsize: int = 512
     lr: float = 2e-5
     train_hl: bool = False
@@ -369,12 +366,13 @@ def train_model(args: SentimentArgs, p_info: PretainInfo, model, dataset):
             LoggingCallback(p_info),
         ],  # early stopping callback goes here, if needed
     )
-    last_ckpt = get_last_checkpoint(training_outdir)
-    if last_ckpt is None:
-        sout("\nTraining...")
-    else:
-        sout("\nLoading last checkpoint...")
-    trainer.train(resume_from_checkpoint=last_ckpt)
+    # last_ckpt = get_last_checkpoint(training_outdir)
+    # if last_ckpt is None:
+    #     sout("\nTraining...")
+    # else:
+    #     sout("\nLoading last checkpoint...")
+    # trainer.train(resume_from_checkpoint=last_ckpt)
+    trainer.train()
 
     return trainer, trainer_args
 
