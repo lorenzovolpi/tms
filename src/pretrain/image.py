@@ -521,7 +521,7 @@ def pretrain(d_info: DatasetInfo, h_info: ClassifierInfo, parser_args):
     classes = np.unique(train_labels)
     train_prev = np.sum(classes.reshape(-1, 1) == train_labels, axis=-1) / train_labels.shape[0]
 
-    save_dataset(d_info.name, h_info.full_name, classes, train_prev, embedddings)
+    save_dataset(DOMAIN, d_info.name, h_info.full_name, classes, train_prev, embedddings)
     log.info(f"[{h_info.name}@{d_info.name}] embeddings saved")
     p_info.dump(V_posteriors=posteriors["validation"], U_posteriors=posteriors["test"])
     log.info(f"[{h_info.name}@{d_info.name}] posteriors saved")

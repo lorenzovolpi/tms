@@ -87,9 +87,9 @@ def gen_datasets() -> Iterator[DatasetInfo]:
     yield _fdataset("stanfordnlp/imdb", 2)
     yield _fdataset("fancyzhx/yelp_polarity", 2)
     yield _fdataset("stanfordnlp/sst2", 2)
-    # yield _fdataset("fancyzhx/ag_news", 4)
-    # yield _fdataset("fancyzhx/dbpedia_14", 14)
-    # yield _fdataset("community-datasets/yahoo_answers_topics", 10)
+    yield _fdataset("fancyzhx/ag_news", 4)
+    yield _fdataset("fancyzhx/dbpedia_14", 14)
+    yield _fdataset("community-datasets/yahoo_answers_topics", 10)
 
 
 def gen_model_args(d_info: DatasetInfo) -> Iterator[ClassifierInfo]:
@@ -474,7 +474,7 @@ def pretrain(d_info: DatasetInfo, h_info: ClassifierInfo, parser_args):
     classes = np.unique(train_labels)
     train_prev = np.sum(classes.reshape(-1, 1) == train_labels, axis=-1) / train_labels.shape[0]
 
-    save_dataset(d_info.name, h_info.full_name, classes, train_prev, embedddings)
+    save_dataset(DOMAIN, d_info.name, h_info.full_name, classes, train_prev, embedddings)
     log.info(f"[{h_info.name}@{d_info.name}] embeddings saved")
     p_info.dump(V_posteriors=posteriors["validation"], U_posteriors=posteriors["test"])
     log.info(f"[{h_info.name}@{d_info.name}] posteriors saved")

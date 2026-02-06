@@ -27,6 +27,7 @@ method_map = {
     "TMS_RQBS": "\\rqbsall",
     "TMS_PrediQuant": "\\pqall",
     "TMS_DoC": "\\docall",
+    "TMS_LEAP-ens": "\\leapens",
 }
 
 dataset_map = {
@@ -57,8 +58,9 @@ def ms_selection():
 
 def gen_tables():
     experiment = main.EXPERIMENT
-    domain = "classic"
+    domain = "image"
     rank_label = "ranking_vals"
+    ensamble = False
 
     main_base_dir = os.path.join(env.root_dir, "main")
     ensamble_base_dir = os.path.join(env.root_dir, "ensamble")
@@ -98,14 +100,19 @@ def gen_tables():
                 .apply_to_column("dataset", decorate_dataset)
                 .apply_to_column("true_cts", lambda ct: acc_from_ct(acc, ct), new_col="true_accs")
             )
-            ensamble_res = (
-                Results.load(base_dir=ensamble_base_dir, acc_name=acc, dataset=dataset, domain=domain)
-                .map_column_values("method", method_map)
-                .map_column_values("dataset", dataset_map)
-                .apply_to_column("dataset", decorate_dataset)
-                .apply_to_column("true_cts", lambda ct: acc_from_ct(acc, ct), new_col="true_accs")
-            )
-            res = Results.concat([main_res, ensamble_res])
+
+            if ensamble:
+                ensamble_res = (
+                    Results.load(base_dir=ensamble_base_dir, acc_name=acc, dataset=dataset, domain=domain)
+                    .map_column_values("method", method_map)
+                    .map_column_values("dataset", dataset_map)
+                    .apply_to_column("dataset", decorate_dataset)
+                    .apply_to_column("true_cts", lambda ct: acc_from_ct(acc, ct), new_col="true_accs")
+                )
+                res = Results.concat([main_res, ensamble_res])
+            else:
+                res = main_res
+
             _methods = [method_map.get(m, m) for m in res.unique_column_values("method")]
             _dataset = decorate_dataset(dataset_map.get(dataset, dataset))
             tbl = add_to_table(tbl, res.df, _dataset, _methods)
@@ -123,7 +130,7 @@ def gen_tables():
 
 def gen_pdf():
     experiment = main.EXPERIMENT
-    domain = "classic"
+    domain = "image"
     table_dir = os.path.join(env.root_dir, "tables")
     os.makedirs(table_dir, exist_ok=True)
     pickle_path = os.path.join(table_dir, f"{experiment}_{domain}.pickle")
@@ -134,6 +141,7 @@ def gen_pdf():
 
     pdf_path = os.path.join(table_dir, f"{experiment}_{domain}.pdf")
     new_commands = [
+        "\\newcommand{\\leapens}{LEAP-ens}",
         "\\newcommand{\\leapall}{LEAP-All}",
         "\\newcommand{\\rqbsall}{RQBS-All}",
         "\\newcommand{\\pqall}{PQ-All}",
@@ -149,8 +157,8 @@ def gen_pdf():
         "\\newcommand{\\nomstsvm}{$\\emptyset$-TSVM}",
         "\\newcommand{\\nomsmlp}{$\\emptyset$-MLP}",
     ]
-    column_alignment = [1, 1, 2, 1], "c"
-    additional_headers = [("oracle", 1), ("IMS", 1), ("TMS", 2), ("Ens", 1)]
+    column_alignment = [1, 1, 2], "c"
+    additional_headers = [("oracle", 1), ("IMS", 1), ("TMS", 2)]
     Table.LatexPDF(
         pdf_path,
         tables=tbls,
