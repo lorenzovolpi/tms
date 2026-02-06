@@ -201,13 +201,13 @@ def experiments():
                 )
                 r.df.save_result(path)
                 log.info(
-                    f"[{r.h_info.name}@{r.dataset_name}] {r.method_name} on {r.acc_name} done [{timestamp(r.t_train, r.t_test_ave)}]"
+                    f"[{r.p.h_info.name}@{r.p.d_info.name}] {r.method_name} on {r.acc_name} done [{timestamp(r.t_train, r.t_test_ave)}]"
                 )
             elif r.old:
-                log.info(f"[{r.h_info.name}@{r.dataset_name}] {r.method_name} on {r.acc_name} exists, skipping")
+                log.info(f"[{r.p.h_info.name}@{r.p.d_info.name}] {r.method_name} on {r.acc_name} exists, skipping")
             elif r.error:
                 log.warning(
-                    f"[{r.h_info.name}@{r.dataset_name}] {r.method_name}: {r.acc_name} gave error '{r.err}' - skipping"
+                    f"[{r.h_info.name}@{r.p.d_info.name}] {r.method_name}: {r.acc_name} gave error '{r.err}' - skipping"
                 )
 
 
