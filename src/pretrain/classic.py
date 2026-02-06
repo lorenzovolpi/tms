@@ -54,24 +54,16 @@ class TrainResult:
     def is_old(self):
         return self.status == "old"
 
-    @property
-    def posteriors(self) -> dict:
-        return dict(
-            V_posteriors=self.V_posteriors,
-            U_posteriors=self.U_posteriors,
-        )
-
 
 @dataclass()
 class Posteriors:
     V_posteriors: np.ndarray
     U_posteriors: np.ndarray
 
-    @property
-    def VU(self):
+    def asdict(self):
         return dict(
-            V_posteriors=self.V_posteriors,
-            U_posteriors=self.U_posteriors,
+            V=self.V_posteriors,
+            U=self.U_posteriors,
         )
 
 
@@ -131,7 +123,7 @@ def pretrain():
     for results in results_gen:
         for p_info, post in results:
             log.info(f"Pretrained {p_info.h_info.name} on {p_info.d_info.name}.")
-            p_info.dump(**post.VU)
+            p_info.dump(posteriors=post.asdict())
 
 
 if __name__ == "__main__":

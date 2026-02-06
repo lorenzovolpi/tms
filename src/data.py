@@ -6,7 +6,7 @@ from abc import ABC
 from collections import defaultdict
 from dataclasses import dataclass
 from glob import glob
-from typing import Any, Callable, Literal, Self, Tuple
+from typing import Any, Callable, Dict, Literal, Self, Tuple
 
 import joblib
 import numpy as np
@@ -23,6 +23,10 @@ from pretrain.dataset import load_dataset
 from util import split_validation
 
 BASEDIR = os.path.join("output", "tms", "pretrain")
+
+
+class NotPretrainedError(Exception):
+    pass
 
 
 @njit
@@ -217,22 +221,19 @@ class PretainInfo:
 
     def dump(
         self,
-        V_posteriors: np.ndarray,
-        U_posteriors: np.ndarray,
-        calib_V_posteriors: np.ndarray = None,
-        calib_U_posteriors: np.ndarray = None,
+        posteriors: Dict[str, np.ndarray] | None = None,
+        logits: Dict[str, np.ndarray] | None = None,
     ):
         os.makedirs(os.path.dirname(self.info_path), exist_ok=True)
         with open(self.info_path, "wb") as f:
             pickle.dump(self, f)
-        _posts = dict(
-            V_posteriors=V_posteriors,
-            U_posteriors=U_posteriors,
-        )
-        if calib_V_posteriors is not None:
-            _posts["calib_V_posteriors"] = calib_V_posteriors
-        if calib_U_posteriors is not None:
-            _posts["calib_U_posteriors"] = calib_U_posteriors
+        _posts = {}
+        if posteriors:
+            _posts["V_posteriors"] = posteriors["V"]
+            _posts["U_posteriors"] = posteriors["U"]
+        if logits:
+            _posts["V_logits"] = logits["V"]
+            _posts["U_logits"] = logits["U"]
         np.savez_compressed(self.posteriors_path, **_posts)
 
     def load_dataset_bundle(self):
@@ -240,15 +241,28 @@ class PretainInfo:
         d_bundle = DatasetBundle(L_prevalence, V, U)
         return d_bundle
 
+    def load_logits(self, npz=None):
+        if npz is None:
+            npz = np.load(self.posteriors_path)
+
+        if "V_logits" not in npz or "U_logits" not in npz:
+            raise NotPretrainedError(f"No logits found in {self.posteriors_path}")
+
+        return npz["V_logits"], npz["U_logits"]
+
+    def load_posteriors(self, npz=None):
+        if npz is None:
+            npz = np.load(self.posteriors_path)
+
+        if "V_posteriors" not in npz or "U_posteriors" not in npz:
+            raise NotPretrainedError(f"No posteriors found in {self.posteriors_path}")
+
+        return npz["V_posteriors"], npz["U_posteriors"]
+
     def load_pretrained_classifier(self, d_bundle: DatasetBundle):
         post_path = self.posteriors_path
         _npz = np.load(post_path)
-        if "calib_V_posteriors" in _npz and "calib_U_posteriors" in _npz:
-            V_posteriors = _npz["calib_V_posteriors"]
-            U_posteriors = _npz["calib_U_posteriors"]
-        else:
-            V_posteriors = _npz["V_posteriors"]
-            U_posteriors = _npz["U_posteriors"]
+        V_posteriors, U_posteriors = self.load_posteriors(npz=_npz)
         return PreTrainedClassifier(
             U_X=d_bundle.U.X, U_posteriors=U_posteriors, V_X=d_bundle.V.X, V_posteriors=V_posteriors
         )
@@ -263,13 +277,6 @@ class PretainInfo:
         d_bundle = p_info.load_dataset_bundle()
 
         h = p_info.load_pretrained_classifier(d_bundle)
-        # post_path = p_info.posteriors_path
-        # _npz = np.load(post_path)
-        # V_posteriors = _npz["V_posteriors"]
-        # U_posteriors = _npz["U_posteriors"]
-        # h = PreTrainedClassifier(
-        #     U_X=d_bundle.U.X, U_posteriors=U_posteriors, V_X=d_bundle.V.X, V_posteriors=V_posteriors
-        # )
 
         return d_bundle, h, p_info
 
