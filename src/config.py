@@ -191,7 +191,7 @@ def get_dataset_names():
     return [name for name, _, _ in gen_datasets(only_names=True)]
 
 
-def get_existing_dataset_names(experiment: str, domain: str):
+def get_existing_dataset_names(experiment: str, domain: str, sort=True):
     info_paths = load_info_paths(domain=domain)
     dataset_h_map = defaultdict(lambda: True)
     for path in info_paths:
@@ -205,7 +205,10 @@ def get_existing_dataset_names(experiment: str, domain: str):
         )
 
     dataset_names = [d for d, all_exist in dataset_h_map.items() if all_exist]
-    return sort_datasets_by_size(d_info.collection, dataset_names)
+    if sort:
+        return sort_datasets_by_size(d_info.collection, dataset_names)
+    else:
+        return dataset_names
 
 
 def get_method_names():
