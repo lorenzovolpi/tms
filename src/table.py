@@ -130,7 +130,7 @@ def gen_tables():
 
 def gen_pdf():
     experiment = main.EXPERIMENT
-    domain = "image"
+    domain = "classic"
     table_dir = os.path.join(env.root_dir, "tables")
     os.makedirs(table_dir, exist_ok=True)
     pickle_path = os.path.join(table_dir, f"{experiment}_{domain}.pickle")
@@ -157,8 +157,8 @@ def gen_pdf():
         "\\newcommand{\\nomstsvm}{$\\emptyset$-TSVM}",
         "\\newcommand{\\nomsmlp}{$\\emptyset$-MLP}",
     ]
-    column_alignment = [1, 1, 2], "c"
-    additional_headers = [("oracle", 1), ("IMS", 1), ("TMS", 2)]
+    column_alignment = [1, 1, 2, 1], "c"
+    additional_headers = [("oracle", 1), ("IMS", 1), ("TMS", 2), ("ensamble", 1)]
     Table.LatexPDF(
         pdf_path,
         tables=tbls,
