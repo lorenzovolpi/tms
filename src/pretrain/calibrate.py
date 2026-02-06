@@ -4,9 +4,12 @@ from typing import Iterable
 
 import numpy as np
 import quapy as qp
+import torch
+import torch.nn as nn
 from cap.utils.commons import parallel
 from sklearn.calibration import CalibratedClassifierCV, calibration_curve
 from sklearn.frozen import FrozenEstimator
+from sklearn.model_selection import KFold
 
 from data import PretainInfo, PreTrainedClassifier, load_info_paths
 from env import PROJECT
@@ -57,34 +60,73 @@ def _ece_multi(y, post, n_bins=10):
 
 def ece(y, post, n_bins=10):
     if post.shape[-1] == 2:
-        return _ece_bin(y, post, n_bins)
+        return _ece_bin(y, post[:, 1], n_bins)
     else:
         return _ece_multi(y, post, n_bins)
 
 
+# def calibrate(p: PretainInfo):
+#     d_bundle = p.load_dataset_bundle()
+#     _npz = np.load(p.posteriors_path)
+#     if "calib_V_posteriors" in _npz and "calib_U_posteriors" in _npz:
+#         return Calibrated(p, exists=True)
+#
+#     V_posteriors = _npz["V_posteriors"]
+#     U_posteriors = _npz["U_posteriors"]
+#
+#     h = PreTrainedClassifier(U_X=d_bundle.U.X, U_posteriors=U_posteriors, V_X=d_bundle.V.X, V_posteriors=V_posteriors)
+#     precal_V_post = h.predict_proba(d_bundle.V.X)
+#     calib_h = CalibratedClassifierCV(h, method="temperature", ensemble=False).fit(*d_bundle.V.Xy)
+#     postcal_V_post = calib_h.predict_proba(d_bundle.V.X)
+#     postcal_U_post = calib_h.predict_proba(d_bundle.U.X)
+#     pre_ece = ece(d_bundle.V.y, precal_V_post)
+#     post_ece = ece(d_bundle.V.y, postcal_V_post)
+#     post_dict = dict(
+#         V_posteriors=V_posteriors,
+#         U_posteriors=U_posteriors,
+#         calib_V_posteriors=postcal_V_post,
+#         calib_U_posteriors=postcal_U_post,
+#     )
+#     return Calibrated(p, post_dict, pre_ece=pre_ece, post_ece=post_ece)
+
+
+class TemperatureScaling(nn.Module):
+    def __init__(self, n_splits=5, lr=0.01):
+        super().__init__()
+        self.temperature = nn.Parameter(torch.ones(1) * 1.5)
+        self.n_splits = n_splits
+        self.lr = lr
+
+    def forward(self, logits):
+        return logits / self.temperature
+
+    def _fit_fold(self):
+        pass
+
+    def fit(self, val_logits: np.ndarray, val_labels: np.ndarray):
+        kf = KFold(n_splits=self.n_splits, shuffle=True, random_state=qp.environ["_R_SEED"])
+
+        temperatures = []
+        ece_scores = []
+
+        for train_index, test_index in kf.split(val_logits):
+            train_logits = torch.tensor(val_logits[train_index])
+            train_labels = torch.tensor(val_labels[train_index])
+            test_logits = torch.tensor(val_logits[test_index])
+            test_labels = val_labels[test_index]
+
+            self.temperature = nn.Parameter(torch.ones(1) * 1.5)
+            self._fit_fold(train_logits, train_labels)
+            temperatures.append(self.temperature.item())
+
+            test_probs = self.predict_proba(test_logits)
+            ece_scores.append(ece(test_labels, test_probs))
+        pass
+
+
 def calibrate(p: PretainInfo):
     d_bundle = p.load_dataset_bundle()
-    _npz = np.load(p.posteriors_path)
-    if "calib_V_posteriors" in _npz and "calib_U_posteriors" in _npz:
-        return Calibrated(p, exists=True)
-
-    V_posteriors = _npz["V_posteriors"]
-    U_posteriors = _npz["U_posteriors"]
-
-    h = PreTrainedClassifier(U_X=d_bundle.U.X, U_posteriors=U_posteriors, V_X=d_bundle.V.X, V_posteriors=V_posteriors)
-    precal_V_post = h.predict_proba(d_bundle.V.X)
-    calib_h = CalibratedClassifierCV(h, method="temperature", ensemble=False).fit(*d_bundle.V.Xy)
-    postcal_V_post = calib_h.predict_proba(d_bundle.V.X)
-    postcal_U_post = calib_h.predict_proba(d_bundle.U.X)
-    pre_ece = ece(d_bundle.V.y, precal_V_post)
-    post_ece = ece(d_bundle.V.y, postcal_V_post)
-    post_dict = dict(
-        V_posteriors=V_posteriors,
-        U_posteriors=U_posteriors,
-        calib_V_posteriors=postcal_V_post,
-        calib_U_posteriors=postcal_U_post,
-    )
-    return Calibrated(p, post_dict, pre_ece=pre_ece, post_ece=post_ece)
+    V_logits, U_logits = p.load_logits()
 
 
 def main(pargs):
