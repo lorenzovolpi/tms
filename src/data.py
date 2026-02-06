@@ -6,7 +6,7 @@ from abc import ABC
 from collections import defaultdict
 from dataclasses import dataclass
 from glob import glob
-from typing import Callable, Literal, Self, Tuple
+from typing import Any, Callable, Literal, Self, Tuple
 
 import joblib
 import numpy as np
@@ -16,7 +16,7 @@ from cap.utils.commons import contingency_table
 from numba import njit
 from quapy.data import LabelledCollection
 from quapy.protocol import UPP, AbstractStochasticSeededProtocol
-from sklearn.base import BaseEstimator, clone
+from sklearn.base import BaseEstimator, ClassifierMixin, clone
 
 import env
 from pretrain.dataset import load_dataset
@@ -43,7 +43,7 @@ def _lookup_sample(X, S, order, left, right):
     return res
 
 
-class PreTrainedClassifier(ABC):
+class PreTrainedClassifier(BaseEstimator, ClassifierMixin):
     GOLDEN_RATIO_MULTIPLIER = 11400714819323198485
     MULTIPLIER_64 = 0x9E3779B97F4A7C15
 
@@ -57,6 +57,14 @@ class PreTrainedClassifier(ABC):
         self.X = np.ascontiguousarray(np.vstack([U_X, V_X]))
         self.P = np.vstack([U_posteriors, V_posteriors])
         self.hx_order, self.hx_sorted = self._build_hx(self.X)
+        self._fitted = True
+        self.classes_ = np.unique(np.argmax(self.P, axis=-1))
+
+    def __getattribute__(self, name: str, /) -> Any:
+        if name in ["U_X", "U_posteriors", "V_X", "V_posteriors"]:
+            return False
+        else:
+            return super().__getattribute__(name)
 
     def _fp64_rows(self, X):
         row_bytes = X.dtype.itemsize * X.shape[1]
@@ -82,6 +90,9 @@ class PreTrainedClassifier(ABC):
         hx_sorted = hx[hx_order]
         return hx_order, hx_sorted
 
+    def fit(self, X, y):
+        return self
+
     def predict_proba(self, S: np.ndarray) -> np.ndarray:
         Sc = np.ascontiguousarray(S)
         hs = self._fp64_rows(Sc)
@@ -95,7 +106,10 @@ class PreTrainedClassifier(ABC):
         return posteriors.argmax(axis=-1)
 
     def decision_function(self, X: np.ndarray) -> np.ndarray:
-        return self.predict_proba(X)
+        if self.classes_.shape[0] == 2:
+            return self.predict_proba(X)[:, 1].squeeze()
+        else:
+            return self.predict_proba(X)
 
 
 @dataclass
@@ -201,11 +215,25 @@ class PretainInfo:
     def exists(self) -> bool:
         return os.path.exists(self.info_path)
 
-    def dump(self, V_posteriors: np.ndarray, U_posteriors: np.ndarray):
+    def dump(
+        self,
+        V_posteriors: np.ndarray,
+        U_posteriors: np.ndarray,
+        calib_V_posteriors: np.ndarray = None,
+        calib_U_posteriors: np.ndarray = None,
+    ):
         os.makedirs(os.path.dirname(self.info_path), exist_ok=True)
         with open(self.info_path, "wb") as f:
             pickle.dump(self, f)
-        np.savez_compressed(self.posteriors_path, V_posteriors=V_posteriors, U_posteriors=U_posteriors)
+        _posts = dict(
+            V_posteriors=V_posteriors,
+            U_posteriors=U_posteriors,
+        )
+        if calib_V_posteriors is not None:
+            _posts["calib_V_posteriors"] = calib_V_posteriors
+        if calib_U_posteriors is not None:
+            _posts["calib_U_posteriors"] = calib_U_posteriors
+        np.savez_compressed(self.posteriors_path, **_posts)
 
     def load_dataset_bundle(self):
         L_prevalence, V, U = load_from_collection(self)
@@ -215,8 +243,12 @@ class PretainInfo:
     def load_pretrained_classifier(self, d_bundle: DatasetBundle):
         post_path = self.posteriors_path
         _npz = np.load(post_path)
-        V_posteriors = _npz["V_posteriors"]
-        U_posteriors = _npz["U_posteriors"]
+        if "calib_V_posteriors" in _npz and "calib_U_posteriors" in _npz:
+            V_posteriors = _npz["calib_V_posteriors"]
+            U_posteriors = _npz["calib_U_posteriors"]
+        else:
+            V_posteriors = _npz["V_posteriors"]
+            U_posteriors = _npz["U_posteriors"]
         return PreTrainedClassifier(
             U_X=d_bundle.U.X, U_posteriors=U_posteriors, V_X=d_bundle.V.X, V_posteriors=V_posteriors
         )

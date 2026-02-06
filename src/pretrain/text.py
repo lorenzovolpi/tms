@@ -366,13 +366,13 @@ def train_model(args: SentimentArgs, p_info: PretainInfo, model, dataset):
             LoggingCallback(p_info),
         ],  # early stopping callback goes here, if needed
     )
-    # last_ckpt = get_last_checkpoint(training_outdir)
-    # if last_ckpt is None:
-    #     sout("\nTraining...")
-    # else:
-    #     sout("\nLoading last checkpoint...")
-    # trainer.train(resume_from_checkpoint=last_ckpt)
-    trainer.train()
+    last_ckpt = get_last_checkpoint(training_outdir)
+    if last_ckpt is None:
+        sout("\nTraining...")
+    else:
+        sout("\nLoading last checkpoint...")
+    trainer.train(resume_from_checkpoint=last_ckpt)
+    # trainer.train()
 
     return trainer, trainer_args
 
@@ -388,7 +388,7 @@ def get_cls_bertlike(x):
 
 def embed(model, data, selection_strategy, args: SentimentArgs):
     # text_tag = "text"
-    # split_logits = []
+    split_logits = []
     split_posteriors = []
     split_hidden_states = []
     split_y = []
@@ -417,15 +417,15 @@ def embed(model, data, selection_strategy, args: SentimentArgs):
 
         split_y.append(torch.tensor(labels))
         split_hidden_states.append(selection_strategy(last_hidden_states).cpu().detach())
-        # split_logits.append(logits.cpu().detach())
+        split_logits.append(logits.cpu().detach())
         split_posteriors.append(posteriors.cpu().detach())
 
     split_y = torch.cat(split_y, dim=0).numpy()
-    # split_logits = torch.vstack(split_logits).numpy()
+    split_logits = torch.vstack(split_logits).numpy()
     split_posteriors = torch.vstack(split_posteriors).numpy()
     split_hidden_states = torch.vstack(split_hidden_states).numpy()
 
-    return split_y, split_posteriors, split_hidden_states
+    return split_y, split_posteriors, split_hidden_states, split_logits
 
 
 def pretrain(d_info: DatasetInfo, h_info: ClassifierInfo, parser_args):
@@ -459,22 +459,26 @@ def pretrain(d_info: DatasetInfo, h_info: ClassifierInfo, parser_args):
 
     # Get embedddings and logits
     splits = ["validation", "test"]
+    logits = {}
     embedddings = {}
+    labels = {}
     posteriors = {}
     for split in splits:
         split_data = dataset[split]
-        split_y, split_posteriors, split_last_hiddens = embed(
+        split_y, split_posteriors, split_last_hiddens, split_logits = embed(
             model, data=split_data, selection_strategy=get_cls_bertlike, args=args
         )
-        embedddings[split] = (split_last_hiddens, split_y)
+        embedddings[split] = split_last_hiddens
         posteriors[split] = split_posteriors
+        labels[split] = split_y
+        logits[split] = split_logits
 
     label_tag = "label"
     train_labels = np.array(dataset["train"][label_tag])
     classes = np.unique(train_labels)
     train_prev = np.sum(classes.reshape(-1, 1) == train_labels, axis=-1) / train_labels.shape[0]
 
-    save_dataset(DOMAIN, d_info.name, h_info.full_name, classes, train_prev, embedddings)
+    save_dataset(DOMAIN, d_info.name, h_info.full_name, classes, train_prev, embedddings, logits, labels)
     log.info(f"[{h_info.name}@{d_info.name}] embeddings saved")
     p_info.dump(V_posteriors=posteriors["validation"], U_posteriors=posteriors["test"])
     log.info(f"[{h_info.name}@{d_info.name}] posteriors saved")
