@@ -16,6 +16,7 @@ from quapy.data.datasets import UCI_BINARY_DATASETS, UCI_MULTICLASS_DATASETS
 from quapy.protocol import UPP
 
 import env
+from pretrain.dataset import load_dataset
 
 
 def fit_or_switch(method: ClassifierAccuracyPrediction, V, V_posteriors, acc_fn, is_fit):
@@ -143,14 +144,26 @@ def one_hot(y: np.ndarray, n_classes: int | None = None):
     return _eye[y, :]
 
 
-def sort_datasets_by_size(dataset_names: list[str], descending=True):
+def sort_datasets_by_size(dataset_coll: str, dataset_names: list[str], descending=True):
     @functools.lru_cache(maxsize=len(UCI_BINARY_DATASETS) + len(UCI_MULTICLASS_DATASETS))
     def get_dataset_size(name):
-        if name in UCI_BINARY_DATASETS:
+        _len = 0
+        if dataset_coll == "uci_binary":
             L, V, U = fetch_UCIBinaryDataset(name)
-        elif name in UCI_MULTICLASS_DATASETS:
+            _len = len(L) + len(V) + len(U)
+        elif dataset_coll == "uci_multiclass":
             L, V, U = fetch_UCIMulticlassDataset(name)
-        return len(L) + len(V) + len(U)
+            _len = len(L) + len(V) + len(U)
+        elif dataset_coll == "text":
+            _, V, U = load_dataset("text", name)
+            _len = len(V) + len(U)
+        elif dataset_coll == "image":
+            _, V, U = load_dataset("image", name)
+            _len = len(V) + len(U)
+        else:
+            raise ValueError(f"Unknown dataset collection: {dataset_coll}")
+
+        return _len
 
     datasets = [(d, get_dataset_size(d)) for d in dataset_names]
     datasets.sort(key=(lambda d: d[1]), reverse=descending)

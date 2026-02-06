@@ -1,4 +1,5 @@
 import os
+from glob import glob
 
 import numpy as np
 from quapy.data import LabelledCollection
@@ -6,12 +7,13 @@ from quapy.data import LabelledCollection
 BASEDIR = os.path.join("output", "tms", "datasets")
 
 
-def get_dataset_path(domain, dataset_name, model_name):
+def get_dataset_path(domain: str, dataset_name: str, model_name: str | None):
+    if model_name is None or model_name == "*":
+        return glob(os.path.join(BASEDIR, f"{domain}_{dataset_name}_*.npz"))[0]
     return os.path.join(BASEDIR, f"{domain}_{dataset_name}_{model_name}.npz")
 
 
-def save_dataset(dataset_name, model_name, classes, train_prev, embeds):
-    domain = "text"
+def save_dataset(domain, dataset_name, model_name, classes, train_prev, embeds):
     path = get_dataset_path(domain, dataset_name, model_name)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     val_hidden_states, val_y = embeds["validation"]
@@ -27,8 +29,7 @@ def save_dataset(dataset_name, model_name, classes, train_prev, embeds):
     np.savez_compressed(path, **d)
 
 
-def load_dataset(dataset_name, model_name):
-    domain = "text"
+def load_dataset(domain, dataset_name, model_name=None):
     path = get_dataset_path(domain, dataset_name, model_name)
     _data = np.load(path)
     _classes = _data["classes"]

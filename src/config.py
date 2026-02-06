@@ -121,14 +121,14 @@ def gen_datasets(
         # "yeast",
     ]
     _uci_bin_names = [d for d in UCI_BINARY_DATASETS if d in _uci_bin_native]
-    _sorted_bin_names = sort_datasets_by_size(_uci_bin_names, fetch_UCIBinaryDataset)
     coll = "uci_binary"
+    _sorted_bin_names = sort_datasets_by_size(coll, _uci_bin_names, fetch_UCIBinaryDataset)
     for dn in _sorted_bin_names[:5]:
         dval = None if only_names else fetch_UCIBinaryDataset(dn)
         yield dn, coll, dval
     _uci_mul_names = [d for d in UCI_MULTICLASS_DATASETS]
-    _sorted_mul_names = sort_datasets_by_size(_uci_mul_names, fetch_UCIMulticlassDataset)
     coll = "uci_multiclass"
+    _sorted_mul_names = sort_datasets_by_size(coll, _uci_mul_names, fetch_UCIMulticlassDataset)
     for dn in _sorted_mul_names:
         dval = None if only_names else fetch_UCIMulticlassDataset(dn)
         yield dn, coll, dval
@@ -199,13 +199,13 @@ def get_existing_dataset_names(experiment: str, domain: str):
         d_info, h_info = p.d_info, p.h_info
         # if not dataset_h_map[D.name]:
         #     continue
-        problem = "multiclass" if d_info.n_classes > 2 else "binary"
+        # problem = "multiclass" if d_info.n_classes > 2 else "binary"
         dataset_h_map[d_info.name] = dataset_h_map[d_info.name] and all_results_exist(
             p.domain, d_info.name, h_info.full_name, get_method_names(), get_acc_names(), experiment
         )
 
     dataset_names = [d for d, all_exist in dataset_h_map.items() if all_exist]
-    return sort_datasets_by_size(dataset_names)
+    return sort_datasets_by_size(d_info.collection, dataset_names)
 
 
 def get_method_names():

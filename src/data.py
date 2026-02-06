@@ -251,8 +251,8 @@ def load_from_collection(p_info: PretainInfo):
     elif dataset_collection == "uci_multiclass":
         L, V, U = fetch_UCIMulticlassDataset(dataset_name)
         return L.prevalence(), V, U
-    elif dataset_collection == "text":
-        return load_dataset(dataset_name, p_info.h_info.full_name)
+    elif dataset_collection in ["text", "image"]:
+        return load_dataset(dataset_collection, dataset_name, p_info.h_info.full_name)
     else:
         raise ValueError(f"Unknown dataset collection: {dataset_collection}")
 
