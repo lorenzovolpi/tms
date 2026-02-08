@@ -173,8 +173,8 @@ def gen_methods():
     yield "TMS_LEAP", LEAP(acc)
     yield "TMS_RQBS", RQBS(acc)
     # yield "TMS_RQBScap", RQBScap()
-    yield "TMS_PrediQuant", PrediQuant(acc)
-    yield "TMS_DoC", DoC(acc)
+    # yield "TMS_PrediQuant", PrediQuant(acc)
+    # yield "TMS_DoC", DoC(acc)
 
 
 def get_classifier_names():
