@@ -15,10 +15,14 @@ import env
 from config import acc_from_ct, get_acc_names, get_existing_dataset_names
 from data import PretainInfo, load_info_paths
 from results import RDF, Results, ResultsDataFrame
-from util import get_plain_prev
+from util import get_logger, get_plain_prev
+
+EXPERIMENT = "ensamble"
 
 qp.environ["SAMPLE_SIZE"] = 1000
 qp.environ["_R_SEED"] = 0
+
+log = get_logger(id=f"{env.PROJECT}.{EXPERIMENT}")
 
 
 def get_ensamble_path(acc: str, dataset: str, method: str):
@@ -29,7 +33,9 @@ def get_ensamble_path(acc: str, dataset: str, method: str):
 
 
 def transform_ranking_vals(rvs, temperature=0.01):
-    return softmax(rvs / temperature, axis=-1)
+    # return softmax(rvs / temperature, axis=-1)
+    rvs = np.asarray(rvs)
+    return (rvs - rvs.min()) / (rvs.max() - rvs.min())
 
 
 def build_ensamble_result(p_infos: list[PretainInfo], dataset: str, acc: str, method: str) -> ResultsDataFrame:
@@ -95,9 +101,11 @@ def main():
         _path = get_ensamble_path(acc, dataset, method)
         if os.path.exists(_path):
             tqdm.write(f"{acc}-{method}-{dataset} already exists, skipping.")
+            log.info(f"[{dataset}] Ensamble for {method} on {acc} already exists, skipping.")
             continue
         res = build_ensamble_result(p_infos, dataset, acc, method)
         res.save_result(_path)
+        log.info(f"[{dataset}] Ensamble for {method} on {acc} done.")
 
 
 def show():
