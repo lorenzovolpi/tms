@@ -35,6 +35,12 @@ dataset_map = {
     "hand_digits": "hand-digits",
     "page_block": "page-block",
     "image_seg": "image-seg",
+    "stanfordnlp__imdb": "imdb",
+    "fancyzhx__yelp_polarity": "yelp-polarity",
+    "stanfordnlp__sst2": "sst2",
+    "fancyzhx__ag_news": "ag-news",
+    "fancyzhx__dbpedia_14": "dbpedia-14",
+    "community-datasets__yahoo_answers_topics": "yahoo-answers-topics",
 }
 
 
@@ -58,9 +64,9 @@ def ms_selection():
 
 def gen_tables():
     experiment = main.EXPERIMENT
-    domain = "image"
+    domain = "classic"
     rank_label = "ranking_vals"
-    ensamble = False
+    ensamble = True
 
     main_base_dir = os.path.join(env.root_dir, "main")
     ensamble_base_dir = os.path.join(env.root_dir, "ensamble")
@@ -130,7 +136,7 @@ def gen_tables():
 
 def gen_pdf():
     experiment = main.EXPERIMENT
-    domain = "classic"
+    domain = "image"
     table_dir = os.path.join(env.root_dir, "tables")
     os.makedirs(table_dir, exist_ok=True)
     pickle_path = os.path.join(table_dir, f"{experiment}_{domain}.pickle")
@@ -158,7 +164,7 @@ def gen_pdf():
         "\\newcommand{\\nomsmlp}{$\\emptyset$-MLP}",
     ]
     column_alignment = [1, 1, 2, 1], "c"
-    additional_headers = [("oracle", 1), ("IMS", 1), ("TMS", 2), ("ensamble", 1)]
+    additional_headers = [("oracle", 1), ("IMS", 1), ("TMS", 2), ("Ens", 1)]
     Table.LatexPDF(
         pdf_path,
         tables=tbls,
