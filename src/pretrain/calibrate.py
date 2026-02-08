@@ -1,24 +1,23 @@
 from argparse import ArgumentParser
 from dataclasses import dataclass
-from typing import Iterable
 
 import numpy as np
 import quapy as qp
+import scipy.special as sp
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-from cap.utils.commons import parallel
-from sklearn.calibration import CalibratedClassifierCV, calibration_curve
-from sklearn.frozen import FrozenEstimator
+from sklearn.calibration import calibration_curve
 from sklearn.model_selection import KFold
+from tqdm import tqdm
 
-from data import NotPretrainedError, PretainInfo, PreTrainedClassifier, load_info_paths
+from data import NotPretrainedError, PretainInfo, load_info_paths
 from env import PROJECT
 from util import get_logger
 
 EXPERIMENT = "calibrate"
-DOMAIN = "image"
+DOMAIN = "text"
 
 log = get_logger(id=f"{PROJECT}.{EXPERIMENT}.{DOMAIN}")
 qp.environ["SAMPLE_SIZE"] = 1000
@@ -66,31 +65,6 @@ def ece(y, post, n_bins=10):
         return _ece_bin(y, post[:, 1], n_bins)
     else:
         return _ece_multi(y, post, n_bins)
-
-
-# def calibrate(p: PretainInfo):
-#     d_bundle = p.load_dataset_bundle()
-#     _npz = np.load(p.posteriors_path)
-#     if "calib_V_posteriors" in _npz and "calib_U_posteriors" in _npz:
-#         return Calibrated(p, exists=True)
-#
-#     V_posteriors = _npz["V_posteriors"]
-#     U_posteriors = _npz["U_posteriors"]
-#
-#     h = PreTrainedClassifier(U_X=d_bundle.U.X, U_posteriors=U_posteriors, V_X=d_bundle.V.X, V_posteriors=V_posteriors)
-#     precal_V_post = h.predict_proba(d_bundle.V.X)
-#     calib_h = CalibratedClassifierCV(h, method="temperature", ensemble=False).fit(*d_bundle.V.Xy)
-#     postcal_V_post = calib_h.predict_proba(d_bundle.V.X)
-#     postcal_U_post = calib_h.predict_proba(d_bundle.U.X)
-#     pre_ece = ece(d_bundle.V.y, precal_V_post)
-#     post_ece = ece(d_bundle.V.y, postcal_V_post)
-#     post_dict = dict(
-#         V_posteriors=V_posteriors,
-#         U_posteriors=U_posteriors,
-#         calib_V_posteriors=postcal_V_post,
-#         calib_U_posteriors=postcal_U_post,
-#     )
-#     return Calibrated(p, post_dict, pre_ece=pre_ece, post_ece=post_ece)
 
 
 class TemperatureScaling(nn.Module):
@@ -150,11 +124,12 @@ class TemperatureScaling(nn.Module):
             ece_scores.append(ece(test_labels, test_probs))
 
         mean_T = np.mean(temperatures)
-        mean_ece = np.mean(ece_scores)
+        # mean_ece = np.mean(ece_scores)
 
         self.temperature = nn.Parameter(torch.ones(1) * mean_T)
 
-        return mean_T, mean_ece
+        val_probs = self.predict_proba(val_logits)
+        return mean_T, ece(val_labels, val_probs)
 
     def predict_proba(self, test_logits: np.ndarray):
         _logits = torch.tensor(test_logits)
@@ -165,7 +140,51 @@ class TemperatureScaling(nn.Module):
         return probs.cpu().numpy()
 
 
-def calibrate(p: PretainInfo):
+class VectorScaling(nn.Module):
+    def __init__(self, n_classes: int, lr=0.01, max_iter=50):
+        super().__init__()
+        self.n_classes = n_classes
+        self.lr = lr
+        self.max_iter = max_iter
+        self.temperature = nn.Parameter(torch.ones(n_classes) * 1.5)
+
+    def forward(self, logits):
+        return logits / self.temperature
+
+    def fit(self, val_logits: np.ndarray, val_labels: np.ndarray):
+        self.temperature = nn.Parameter(torch.ones(self.n_classes) * 1.5)
+        nll_criterion = nn.CrossEntropyLoss()
+        optimizer = optim.LBFGS([self.temperature], lr=self.lr, max_iter=self.max_iter)
+
+        val_logits_pt = torch.tensor(val_logits)
+        val_labels_pt = torch.tensor(val_labels)
+
+        def eval_loss():
+            optimizer.zero_grad()
+            loss = nll_criterion(self.forward(val_logits_pt), val_labels_pt)
+            loss.backward()
+            return loss
+
+        optimizer.step(eval_loss)
+
+        with torch.no_grad():
+            self.temperature.clamp_(min=0.01)
+
+        optimal_T = self.temperature.detach().cpu().numpy()
+
+        val_probs = self.predict_proba(val_logits)
+        return optimal_T, ece(val_labels, val_probs)
+
+    def predict_proba(self, test_logits: np.ndarray):
+        _logits = torch.tensor(test_logits)
+        with torch.no_grad():
+            scaled_logits = self.forward(_logits)
+            probs = F.softmax(scaled_logits, dim=1)
+
+        return probs.cpu().numpy()
+
+
+def calibrate(p: PretainInfo, recalib=False):
     d_bundle = p.load_dataset_bundle()
     V_logits, U_logits = p.load_logits()
 
@@ -175,46 +194,38 @@ def calibrate(p: PretainInfo):
     except NotPretrainedError:
         _exist = False
 
-    if _exist:
+    if _exist and not recalib:
         return Calibrated(p, exists=True)
 
-    ece_pre = ece(d_bundle.V.y, F.softmax(V_logits, dim=1))
-    ts = TemperatureScaling()
-    _, ece_post = ts.fit(V_logits, d_bundle.V.y)
+    v_ece_pre = ece(d_bundle.V.y, sp.softmax(V_logits, axis=1))
+    ts = TemperatureScaling(lr=3e-2)
+    # ts = VectorScaling(p.d_info.n_classes)
+    _, v_ece_post = ts.fit(V_logits, d_bundle.V.y)
 
     logits = dict(V=V_logits, U=U_logits)
     posteriors = dict(V=ts.predict_proba(V_logits), U=ts.predict_proba(U_logits))
 
-    return Calibrated(p=p, posteriors=posteriors, logits=logits, ece_pre=ece_pre, ece_post=ece_post)
+    return Calibrated(p=p, posteriors=posteriors, logits=logits, ece_pre=v_ece_pre, ece_post=v_ece_post)
 
 
 def main(pargs):
     info_paths = load_info_paths(DOMAIN)
     p_infos = [PretainInfo.load(p, fast=True) for p in info_paths]
 
-    calib_gen: Iterable[Calibrated]
-    if pargs.n_jobs > 1:
-        calib_gen = parallel(
-            func=calibrate,
-            args_list=p_infos,
-            n_jobs=8,
-            return_as="generator_unordered",
-            max_nbytes=None,
-        )
-    else:
-        calib_gen = [calibrate(p) for p in p_infos]
-
-    for c in calib_gen:
+    for p in tqdm(p_infos, desc="Calibration"):
+        c = calibrate(p, recalib=pargs.recalib)
         if c.exists:
             log.info(f"[{c.p.h_info.name}@{c.p.d_info.name}] already calibrated, skipping.")
         else:
-            # c.p.dump(posteriors=c.posteriors, logits=c.logits)
+            c.p.dump(posteriors=c.posteriors, logits=c.logits)
             log.info(f"[{c.p.h_info.name}@{c.p.d_info.name}] calibrated: {c.ece_pre} -> {c.ece_post}")
 
 
 if __name__ == "__main__":
     parser = ArgumentParser()
-    parser.add_argument("--n-jobs", type=int, default=1, help="Number of jobs to use")
+    parser.add_argument("--recalib", action="store_true", help="Recalibrate existing posteriors")
     pargs = parser.parse_args()
 
+    log.info("-" * 31 + "  start  " + "-" * 31)
     main(pargs)
+    log.info("-" * 32 + "  end  " + "-" * 32)
