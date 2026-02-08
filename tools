@@ -64,7 +64,8 @@ def run_out(args: Namespace):
     _workdir = host_info[args.host]["workdir"]
     _module = args.module if args.module else PROJECT
     if args.tail:
-        command = f"{args.host} tail -f -n +0 {_workdir}/output/{_module}.out | bat -P"
+        # command = f"{args.host} tail -f -n +0 {_workdir}/output/{_module}.out | bat -P"
+        command = f"{args.host} tail -f -n +0 {_workdir}/output/{_module}.out"
     else:
         command = f"{args.host} cat {_workdir}/output/{_module}.out | bat"
 
