@@ -360,7 +360,7 @@ def compute_clf_metrics(preds):
     return {"acc": acc, "f1": f1}
 
 
-def train_model(args: VisionArgs, p_info: PretainInfo, model, dataset):
+def train_model(args: VisionArgs, p_info: PretainInfo, model, dataset, parser_args):
     training_outdir = get_tr_outdir(p_info)
 
     training_args = TrainingArguments(
@@ -402,13 +402,15 @@ def train_model(args: VisionArgs, p_info: PretainInfo, model, dataset):
         ],
     )
 
-    last_ckpt = get_last_checkpoint(training_outdir)
-    if last_ckpt is None:
-        sout("\nTraining...")
+    if parser_args.retrain:
+        trainer.train()
     else:
-        sout("\nLoading last checkpoint...")
-    trainer.train(resume_from_checkpoint=last_ckpt)
-    # trainer.train()
+        last_ckpt = get_last_checkpoint(training_outdir)
+        if last_ckpt is None:
+            sout("\nTraining...")
+        else:
+            sout("\nLoading last checkpoint...")
+        trainer.train(resume_from_checkpoint=last_ckpt)
 
     return trainer, training_args
 
@@ -476,7 +478,7 @@ def embed(model, data, selection_strategy: Callable, args: VisionArgs):
 
 def pretrain(d_info: DatasetInfo, h_info: ClassifierInfo, parser_args):
     p_info = PretainInfo(domain=DOMAIN, d_info=d_info, h_info=h_info)
-    if p_info.exists and not parser_args.retrain:
+    if p_info.exists and not parser_args.ignore_exist:
         log.info(f"[{h_info.name}@{d_info.name}] already exists, skipping.")
         return
 
@@ -497,7 +499,7 @@ def pretrain(d_info: DatasetInfo, h_info: ClassifierInfo, parser_args):
     dataset = preprocess_dataset(args, image_processor, dataset, d_info.name)
     log.info(f"[{h_info.name}@{d_info.name}] dataset pre-processed")
 
-    train_model(args, p_info, model, dataset)
+    train_model(args, p_info, model, dataset, parser_args)
     log.info(f"[{h_info.name}@{d_info.name}] model trained")
 
     if parser_args.dry_run:
@@ -541,6 +543,7 @@ if __name__ == "__main__":
 
     parser = ArgumentParser()
     parser.add_argument("--retrain", action="store_true", help="Retrain existing models")
+    parser.add_argument("--ignore-existing", dest="ignore_exist", action="store_true", help="Retrain existing models")
     parser.add_argument("--dry-run", action="store_true", help="Train the model without saving outputs")
     parser_args = parser.parse_args()
 
