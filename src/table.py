@@ -66,7 +66,7 @@ def gen_tables():
     experiment = main.EXPERIMENT
     domain = "classic"
     rank_label = "ranking_vals"
-    ensamble = True
+    ensamble = domain == "classic"
 
     main_base_dir = os.path.join(env.root_dir, "main")
     ensamble_base_dir = os.path.join(env.root_dir, "ensamble")
@@ -136,7 +136,7 @@ def gen_tables():
 
 def gen_pdf():
     experiment = main.EXPERIMENT
-    domain = "image"
+    domain = "classic"
     table_dir = os.path.join(env.root_dir, "tables")
     os.makedirs(table_dir, exist_ok=True)
     pickle_path = os.path.join(table_dir, f"{experiment}_{domain}.pickle")
