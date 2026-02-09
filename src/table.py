@@ -46,7 +46,8 @@ dataset_map = {
 
 def ms_selection():
     return {
-        "oracle": True,
+        "hi_oracle": True,
+        "low_oracle": True,
         "default": [],
         "method": [
             # ("IMS", "LR"),
@@ -64,7 +65,7 @@ def ms_selection():
 
 def gen_tables():
     experiment = main.EXPERIMENT
-    domain = "classic"
+    domain = "text"
     rank_label = "ranking_vals"
     ensamble = domain == "classic"
 
@@ -136,7 +137,7 @@ def gen_tables():
 
 def gen_pdf():
     experiment = main.EXPERIMENT
-    domain = "classic"
+    domain = "text"
     table_dir = os.path.join(env.root_dir, "tables")
     os.makedirs(table_dir, exist_ok=True)
     pickle_path = os.path.join(table_dir, f"{experiment}_{domain}.pickle")
@@ -163,8 +164,8 @@ def gen_pdf():
         "\\newcommand{\\nomstsvm}{$\\emptyset$-TSVM}",
         "\\newcommand{\\nomsmlp}{$\\emptyset$-MLP}",
     ]
-    column_alignment = [1, 1, 2, 1], "c"
-    additional_headers = [("oracle", 1), ("IMS", 1), ("TMS", 2), ("Ens", 1)]
+    column_alignment = [2, 1, 2], "c"
+    additional_headers = [("oracle", 2), ("IMS", 1), ("TMS", 2)]
     Table.LatexPDF(
         pdf_path,
         tables=tbls,

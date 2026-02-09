@@ -196,16 +196,25 @@ class Results(ABC):
 
         return Results(pd.concat(dfs, axis=0))
 
-    def oracle_ms(self) -> "Results":
+    def oracle_ms(self, type: Literal["max", "min"] = "max") -> "Results":
         accs = get_acc_names()
 
         dfs = []
         for acc in accs:
             odf = self.df.loc[self.df["acc_name"] == acc, :].groupby(["dataset", "uids", "classifier"]).first()
             odf["true_accs"] = odf["true_cts"].apply(lambda ct: acc_from_ct(acc, ct))
-            best_idx = odf.groupby(["uids", "dataset"])["true_accs"].idxmax()
+
+            _gb = odf.groupby(["uids", "dataset"])["true_accs"]
+            match type:
+                case "max":
+                    best_idx = _gb.idxmax()
+                    method_id = "oracle-hi"
+                case "min":
+                    best_idx = _gb.idxmin()
+                    method_id = "oracle-low"
+
             odf = odf.loc[best_idx, :].reset_index(drop=False)
-            odf["method"] = ["oracle"] * len(odf)
+            odf["method"] = [method_id] * len(odf)
             dfs.append(odf)
 
         return Results(pd.concat(dfs, axis=0))
@@ -221,8 +230,10 @@ class Results(ABC):
 
     def model_selection(self, selection: dict, rank_label="ranking_vals") -> "Results":
         dfs = []
-        if selection["oracle"]:
-            dfs.append(self.oracle_ms())
+        if selection["hi_oracle"]:
+            dfs.append(self.oracle_ms(type="max"))
+        if selection["low_oracle"]:
+            dfs.append(self.oracle_ms(type="min"))
         for m, cls_class in selection["method"]:
             dfs.append(self.method_ms(method=m, classifier_class=cls_class, rank_label=rank_label))
         # TODO: add default_classifier_ms
