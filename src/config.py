@@ -200,13 +200,15 @@ def get_existing_dataset_names(experiment: str, domain: str, sort=True):
         # if not dataset_h_map[D.name]:
         #     continue
         # problem = "multiclass" if d_info.n_classes > 2 else "binary"
-        dataset_h_map[d_info.name] = dataset_h_map[d_info.name] and all_results_exist(
+        _key = (d_info.name, d_info.collection)
+        dataset_h_map[_key] = dataset_h_map[_key] and all_results_exist(
             p.domain, d_info.name, h_info.full_name, get_method_names(), get_acc_names(), experiment
         )
 
-    dataset_names = [d for d, all_exist in dataset_h_map.items() if all_exist]
+    datasets = [dc for dc, all_exist in dataset_h_map.items() if all_exist]
+    dataset_names, dataset_colls = tuple(map(lambda x: list(x), zip(*datasets)))
     if sort:
-        return sort_datasets_by_size(d_info.collection, dataset_names)
+        return sort_datasets_by_size(dataset_colls, dataset_names)
     else:
         return dataset_names
 

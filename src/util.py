@@ -144,27 +144,29 @@ def one_hot(y: np.ndarray, n_classes: int | None = None):
     return _eye[y, :]
 
 
-def sort_datasets_by_size(dataset_coll: str, dataset_names: list[str], descending=True):
+def sort_datasets_by_size(dataset_coll: str | list[str], dataset_names: list[str], descending=True):
     @functools.lru_cache(maxsize=len(UCI_BINARY_DATASETS) + len(UCI_MULTICLASS_DATASETS))
-    def get_dataset_size(name):
+    def get_dataset_size(name, coll):
         _len = 0
-        if dataset_coll == "uci_binary":
+        if coll == "uci_binary":
             L, V, U = fetch_UCIBinaryDataset(name)
             _len = len(L) + len(V) + len(U)
-        elif dataset_coll == "uci_multiclass":
+        elif coll == "uci_multiclass":
             L, V, U = fetch_UCIMulticlassDataset(name)
             _len = len(L) + len(V) + len(U)
-        elif dataset_coll == "text":
+        elif coll == "text":
             _, V, U = load_dataset("text", name)
             _len = len(V) + len(U)
-        elif dataset_coll == "image":
+        elif coll == "image":
             _, V, U = load_dataset("image", name)
             _len = len(V) + len(U)
         else:
-            raise ValueError(f"Unknown dataset collection: {dataset_coll}")
+            raise ValueError(f"Unknown dataset collection: {coll}")
 
         return _len
 
-    datasets = [(d, get_dataset_size(d)) for d in dataset_names]
+    dataset_colls = dataset_coll if isinstance(dataset_coll, list) else [dataset_coll] * len(dataset_names)
+
+    datasets = [(d, get_dataset_size(d, c)) for d, c in zip(dataset_names, dataset_colls)]
     datasets.sort(key=(lambda d: d[1]), reverse=descending)
     return [d for (d, _) in datasets]
