@@ -7,8 +7,8 @@ from time import time
 import numpy as np
 import pandas as pd
 import quapy as qp
+import scipy.special as sp
 from cap.utils.commons import contingency_table, get_shift
-from scipy.special import softmax
 from tqdm import tqdm
 
 import env
@@ -33,7 +33,7 @@ def get_ensamble_path(acc: str, dataset: str, method: str):
 
 
 def transform_ranking_vals(rvs, temperature=0.01):
-    # return softmax(rvs / temperature, axis=-1)
+    # return sp.softmax(rvs / temperature, axis=-1)
     rvs = np.asarray(rvs)
     return (rvs - rvs.min()) / (rvs.max() - rvs.min())
 
