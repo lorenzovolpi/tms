@@ -230,9 +230,9 @@ class Results(ABC):
 
     def model_selection(self, selection: dict, rank_label="ranking_vals") -> "Results":
         dfs = []
-        if selection["hi_oracle"]:
+        if selection["oracle-hi"]:
             dfs.append(self.oracle_ms(type="max"))
-        if selection["low_oracle"]:
+        if selection["oracle-low"]:
             dfs.append(self.oracle_ms(type="min"))
         for m, cls_class in selection["method"]:
             dfs.append(self.method_ms(method=m, classifier_class=cls_class, rank_label=rank_label))

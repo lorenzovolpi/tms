@@ -46,8 +46,8 @@ dataset_map = {
 
 def ms_selection():
     return {
-        "hi_oracle": True,
-        "low_oracle": True,
+        "oracle-hi": True,
+        "oracle-low": True,
         "default": [],
         "method": [
             # ("IMS", "LR"),
@@ -63,9 +63,9 @@ def ms_selection():
     }
 
 
-def gen_tables():
+def gen_tables(pargs):
     experiment = main.EXPERIMENT
-    domain = "text"
+    domain = pargs.domain
     rank_label = "ranking_vals"
     ensamble = domain == "classic"
 
@@ -84,7 +84,7 @@ def gen_tables():
     datasets = get_existing_dataset_names("main", domain)
     for acc in accs:
         name = f"{experiment}_{domain}_{acc}"
-        tbl = Table(name=name, oracles=["oracle"])
+        tbl = Table(name=name, oracles=["oracle-hi", "oracle-low"])
         tbl.format = Format(
             lower_is_better=False,
             mean_prec=3,
@@ -135,9 +135,9 @@ def gen_tables():
         pickle.dump(tbls, f)
 
 
-def gen_pdf():
+def gen_pdf(pargs):
     experiment = main.EXPERIMENT
-    domain = "text"
+    domain = pargs.domain
     table_dir = os.path.join(env.root_dir, "tables")
     os.makedirs(table_dir, exist_ok=True)
     pickle_path = os.path.join(table_dir, f"{experiment}_{domain}.pickle")
@@ -181,9 +181,15 @@ if __name__ == "__main__":
     parser.add_argument("-t", "--tables", action="store_true", help="Generate tables")
     parser.add_argument("-p", "--pdf", action="store_true", help="Generate PDF from tables")
     parser.add_argument("-a", "--all", action="store_true", help="Generate both tables and PDF")
-    args = parser.parse_args()
+    parser.add_argument("--text", action="store_const", dest="domain", const="text")
+    parser.add_argument("--image", action="store_const", dest="domain", const="image")
+    parser.add_argument("--classic", action="store_const", dest="domain", const="classic")
+    pargs = parser.parse_args()
 
-    if args.tables:
-        gen_tables()
-    if args.pdf:
-        gen_pdf()
+    if pargs.domain is None:
+        raise ValueError("Please specify a domain.")
+
+    if pargs.tables:
+        gen_tables(pargs)
+    if pargs.pdf:
+        gen_pdf(pargs)
