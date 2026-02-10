@@ -108,6 +108,7 @@ def gen_datasets() -> Iterator[DatasetInfo]:
     yield _fdataset("mnist", 10)
     yield _fdataset("cifar10", 10)
     yield _fdataset("cifar100", 100)
+    # yield _fdataset("ILSVRC/imagenet-1k", 1000)
 
 
 # fmt: off
