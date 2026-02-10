@@ -1,5 +1,6 @@
 import os
 import time
+from argparse import ArgumentParser
 from collections import defaultdict
 from glob import glob
 
@@ -9,10 +10,9 @@ import env
 from config import get_acc_names, get_method_names
 from data import PretainInfo, load_info_paths
 
-DOMAIN = "text"
 
-if __name__ == "__main__":
-    _info_paths = load_info_paths(domain=DOMAIN)
+def progress(domain):
+    _info_paths = load_info_paths(domain=domain)
     n_pretrains = len(_info_paths)
     n_methods = len(get_method_names())
     n_accs = len(get_acc_names())
@@ -29,9 +29,22 @@ if __name__ == "__main__":
     while sum(list(_compls.values())) < n_total:
         for dataset, p_bar in p_bars.items():
             _done = len(
-                glob(os.path.join(env.root_dir, "main", DOMAIN, "*", dataset, "**", "*.parquet"), recursive=True)
+                glob(os.path.join(env.root_dir, "main", domain, "*", dataset, "**", "*.parquet"), recursive=True)
             )
             _delta = _done - _compls[dataset]
             _compls[dataset] = _done
             p_bar.update(_delta)
         time.sleep(1)
+
+
+if __name__ == "__main__":
+    parser = ArgumentParser()
+    parser.add_argument("--text", action="store_const", dest="domain", const="text")
+    parser.add_argument("--image", action="store_const", dest="domain", const="image")
+    parser.add_argument("--classic", action="store_const", dest="domain", const="classic")
+    pargs = parser.parse_args()
+
+    if pargs.domain is None:
+        raise ValueError("Please specify a domain.")
+
+    progress(pargs.domain)

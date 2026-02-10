@@ -17,9 +17,7 @@ from env import PROJECT
 from util import get_logger
 
 EXPERIMENT = "calibrate"
-DOMAIN = "text"
 
-log = get_logger(id=f"{PROJECT}.{EXPERIMENT}.{DOMAIN}")
 qp.environ["SAMPLE_SIZE"] = 1000
 qp.environ["_R_SEED"] = 0
 
@@ -208,8 +206,8 @@ def calibrate(p: PretainInfo, recalib=False):
     return Calibrated(p=p, posteriors=posteriors, logits=logits, ece_pre=v_ece_pre, ece_post=v_ece_post)
 
 
-def main(pargs):
-    info_paths = load_info_paths(DOMAIN)
+def main(log, pargs):
+    info_paths = load_info_paths(pargs.domain)
     p_infos = [PretainInfo.load(p, fast=True) for p in info_paths]
 
     for p in tqdm(p_infos, desc="Calibration"):
@@ -224,8 +222,16 @@ def main(pargs):
 if __name__ == "__main__":
     parser = ArgumentParser()
     parser.add_argument("--recalib", action="store_true", help="Recalibrate existing posteriors")
+    parser.add_argument("--text", action="store_const", dest="domain", const="text")
+    parser.add_argument("--image", action="store_const", dest="domain", const="image")
+    parser.add_argument("--classic", action="store_const", dest="domain", const="classic")
     pargs = parser.parse_args()
 
+    if pargs.domain is None:
+        raise ValueError("Please specify a domain.")
+
+    log = get_logger(id=f"{PROJECT}.{EXPERIMENT}.{pargs.domain}")
+
     log.info("-" * 31 + "  start  " + "-" * 31)
-    main(pargs)
+    main(log, pargs)
     log.info("-" * 32 + "  end  " + "-" * 32)
