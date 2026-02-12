@@ -8,6 +8,7 @@ dependencies = [
     "accelerate>=1.12.0",
     "cap-ml @ git+https://github.com/lorenzovolpi/cap-ml.git",
     "datasets>=4.5.0",
+    "ecos>=2.0.14",
     "fastparquet>=2025.12.0",
     "numba>=0.63.1",
     "numpy<2.4.0",
