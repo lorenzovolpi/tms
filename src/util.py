@@ -6,7 +6,6 @@ from time import time
 
 import cap
 import numpy as np
-import pandas as pd
 import quapy as qp
 from cap.data.datasets import fetch_UCIBinaryDataset, fetch_UCIMulticlassDataset
 from cap.models.base import ClassifierAccuracyPrediction
