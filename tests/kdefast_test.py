@@ -1,7 +1,6 @@
 import os
 from argparse import ArgumentParser
 from collections import defaultdict
-from traceback import print_exception
 
 from quapy.method.aggregative import KDEyML
 from quapy.protocol import UPP
@@ -16,26 +15,25 @@ from time import time
 import numpy as np
 import pandas as pd
 import quapy as qp
-from cap.error import vanilla_acc
-from cap.models.cont_table import O_LEAP
 from quapy.data.datasets import (
-    UCI_BINARY_DATASETS,
     UCI_MULTICLASS_DATASETS,
-    fetch_UCIBinaryDataset,
     fetch_UCIMulticlassDataset,
 )
 from sklearn.neural_network import MLPClassifier
 
 from data import PretainInfo, load_info_paths
-from method._kdey import KDEyMLFast
 
 qp.environ["SAMPLE_SIZE"] = 1000
 qp.environ["_R_SEED"] = 0
 
 
-def text():
-    ps = [PretainInfo.load(p, fast=True) for p in load_info_paths(domain="text")]
-    pf = [p for p in ps if "yahoo" in p.d_info.name]
+def deep(domain):
+    dataset = {
+        "text": "yahoo",
+        "image": "cifar100",
+    }[domain]
+    ps = [PretainInfo.load(p, fast=True) for p in load_info_paths(domain=domain)]
+    pf = [p for p in ps if dataset in p.d_info.name]
     for p in pf:
         db = p.load_dataset_bundle()
         h = p.load_pretrained_classifier(db)
@@ -43,28 +41,6 @@ def text():
         db.get_posteriors(h)
 
         q = KDEyMLCuda()
-
-        tqdm.write(f"{p.h_info.name}@{p.d_info.name}")
-        q.fit(*db.V.Xy)
-
-        accs = []
-        for Ui in tqdm(db.test_prot(), desc="Testing", total=db.test_prot.total()):
-            prev = q.quantify(Ui.X)
-            accs.append(qp.error.mae(prev, Ui.prevalence()))
-
-        tqdm.write(f"acc={np.mean(accs):.6f}\n")
-
-
-def image():
-    ps = [PretainInfo.load(p, fast=True) for p in load_info_paths(domain="image")]
-    pf = [p for p in ps if "cifar100" in p.d_info.name]
-    for p in pf:
-        db = p.load_dataset_bundle()
-        h = p.load_pretrained_classifier(db)
-
-        db.get_posteriors(h)
-
-        q = KDEyMLCuda(kde_train_chunk_size=None)
 
         tqdm.write(f"{p.h_info.name}@{p.d_info.name}")
         q.fit(*db.V.Xy)
@@ -136,7 +112,5 @@ if __name__ == "__main__":
 
     if pargs.domain == "classic":
         classic()
-    if pargs.domain == "text":
-        text()
-    if pargs.domain == "image":
-        image()
+    if pargs.domain in ["text", "image"]:
+        deep(pargs.domain)
