@@ -1,4 +1,5 @@
 import os
+from argparse import ArgumentParser
 from collections import defaultdict
 from traceback import print_exception
 
@@ -42,6 +43,28 @@ def text():
         db.get_posteriors(h)
 
         q = KDEyMLCuda()
+
+        tqdm.write(f"{p.h_info.name}@{p.d_info.name}")
+        q.fit(*db.V.Xy)
+
+        accs = []
+        for Ui in tqdm(db.test_prot(), desc="Testing", total=db.test_prot.total()):
+            prev = q.quantify(Ui.X)
+            accs.append(qp.error.mae(prev, Ui.prevalence()))
+
+        tqdm.write(f"acc={np.mean(accs):.6f}\n")
+
+
+def image():
+    ps = [PretainInfo.load(p, fast=True) for p in load_info_paths(domain="image")]
+    pf = [p for p in ps if "cifar100" in p.d_info.name]
+    for p in pf:
+        db = p.load_dataset_bundle()
+        h = p.load_pretrained_classifier(db)
+
+        db.get_posteriors(h)
+
+        q = KDEyMLCuda(kde_train_chunk_size=None)
 
         tqdm.write(f"{p.h_info.name}@{p.d_info.name}")
         q.fit(*db.V.Xy)
@@ -102,4 +125,18 @@ def classic():
 
 
 if __name__ == "__main__":
-    text()
+    parser = ArgumentParser()
+    parser.add_argument("--text", action="store_const", dest="domain", const="text")
+    parser.add_argument("--image", action="store_const", dest="domain", const="image")
+    parser.add_argument("--classic", action="store_const", dest="domain", const="classic")
+    pargs = parser.parse_args()
+
+    if pargs.domain is None:
+        raise ValueError("Please specify a domain.")
+
+    if pargs.domain == "classic":
+        classic()
+    if pargs.domain == "text":
+        text()
+    if pargs.domain == "image":
+        image()
