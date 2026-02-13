@@ -54,8 +54,7 @@ class KDEyMLCuda:
         batch_size: int = 256,
         lr: float = 1e-3,
         weight_decay: float = 1e-5,
-        kde_train_chunk_size: int = 5000,
-        kde_test_batch_size: int = 1000,
+        kde_batch_size: int = 1000,
         max_optim_iter: int = 500,
         random_state: int = None,
         return_type: Literal["np", "pt"] = "np",
@@ -67,8 +66,7 @@ class KDEyMLCuda:
         self.batch_size = batch_size
         self.lr = lr
         self.weight_decay = weight_decay
-        self.kde_train_chunk_size = kde_train_chunk_size
-        self.kde_test_batch_size = kde_test_batch_size
+        self.kde_batch_size = kde_batch_size
         self.max_optim_iter = max_optim_iter
         self.random_state = random_state if random_state is not None else qp.environ["_R_SEED"]
         self.return_type = return_type
@@ -181,8 +179,7 @@ class KDEyMLCuda:
             class_posteriors = posteriors[class_mask]
             kde = KernelDensityCuda(
                 bandwidth=self.bandwidth,
-                train_chunk_size=self.kde_train_chunk_size,
-                test_batch_size=self.kde_test_batch_size,
+                test_batch_size=self.kde_batch_size,
                 return_type="pt",
             )
             kde.fit(class_posteriors)
