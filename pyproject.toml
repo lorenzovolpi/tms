@@ -10,6 +10,7 @@ dependencies = [
     "datasets>=4.5.0",
     "ecos>=2.0.14",
     "fastparquet>=2025.12.0",
+    "nltk>=3.9.2",
     "numba>=0.63.1",
     "numpy<2.4.0",
     "pandatex @ git+https://github.com/lorenzovolpi/pandatex.git",
