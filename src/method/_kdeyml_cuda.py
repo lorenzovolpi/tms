@@ -5,6 +5,7 @@ import quapy as qp
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from quapy.functional import prevalence_from_labels
 from sklearn.model_selection import StratifiedKFold
 from torch.utils.data import DataLoader, TensorDataset
 from tqdm import tqdm
@@ -214,38 +215,122 @@ class KDEyMLCuda:
 
         return prevalences
 
+    def batch_quantify(self, Xs: list[np.ndarray] | list[torch.Tensor]) -> np.ndarray | torch.Tensor:
+        n_batches = len(Xs)
+        if isinstance(Xs[0], np.ndarray):
+            Xs = torch.from_numpy(np.stack(Xs, axis=0)).float()
+        else:
+            Xs = torch.stack(Xs, dim=0)
+
+        Xs = Xs.view(-1, Xs.size(2))
+
+        self.classifier.eval()
+        with torch.no_grad():
+            Xs_tensor = Xs.to(self.device)
+
+            all_posteriors = []
+            for i in tqdm(range(0, len(Xs_tensor), self.batch_size), desc="Posteriors"):
+                batch = Xs_tensor[i : i + self.batch_size]
+                outputs = self.classifier(batch)
+                probs = torch.softmax(outputs, dim=1)
+                all_posteriors.append(probs)
+
+            posteriors = torch.cat(all_posteriors, dim=0)
+
+        log_densities = torch.zeros((len(Xs), self.n_classes), device=self.device)
+        for c in tqdm(range(self.n_classes), desc="KDE"):
+            log_densities[:, c] = self.kdes[c].score_samples(posteriors)
+
+        log_densities = log_densities.view(n_batches, -1, self.n_classes)
+        prevalences = self._batch_optimize_mixture(log_densities)
+
+        if self.return_type == "np":
+            prevalences = prevalences.cpu().numpy()
+
+        return prevalences
+
+    def _batch_optimize_mixture(self, log_densities: torch.Tensor) -> torch.Tensor:
+        n_batches = log_densities.size(0)
+        all_prevalences = []
+
+        for b in tqdm(range(n_batches), desc="q optim"):
+            b_prevalences = self._optimize_mixture(log_densities[b])
+            all_prevalences.append(b_prevalences)
+
+        prevalences = torch.stack(all_prevalences, dim=0)
+
+        return prevalences
+
+    # def _optimize_mixture(self, log_densities: torch.Tensor) -> torch.Tensor:
+    #     logits = torch.zeros(self.n_classes, device=self.device, requires_grad=True)
+    #     optimizer = optim.LBFGS([logits], lr=1.0, max_iter=20, line_search_fn="strong_wolfe")
+    #
+    #     iteration = [0]
+    #     best_loss = [float("inf")]
+    #     best_prevalences = [None]
+    #
+    #     def closure():
+    #         optimizer.zero_grad()
+    #         prevalences = torch.softmax(logits, dim=0)
+    #         log_prevalences = torch.log(prevalences + 1e-10)
+    #         log_weighted_densities = log_densities + log_prevalences
+    #
+    #         max_log, _ = log_weighted_densities.max(dim=1, keepdim=True)
+    #         log_mixture = max_log + torch.log(torch.exp(log_weighted_densities - max_log).sum(dim=1, keepdim=True))
+    #
+    #         nll = -log_mixture.sum()
+    #         nll.backward()
+    #
+    #         current_loss = nll.item()
+    #         if current_loss < best_loss[0]:
+    #             best_loss[0] = current_loss
+    #             best_prevalences[0] = torch.softmax(logits.detach().clone(), dim=0)
+    #
+    #         iteration[0] += 1
+    #         return nll
+    #
+    #     for _ in range(self.max_optim_iter // 20):
+    #         optimizer.step(closure)
+    #         if iteration[0] >= self.max_optim_iter:
+    #             break
+    #
+    #     prevalences = best_prevalences[0] if best_prevalences[0] is not None else torch.softmax(logits.detach(), dim=0)
+    #     return prevalences
+
     def _optimize_mixture(self, log_densities: torch.Tensor) -> torch.Tensor:
         logits = torch.zeros(self.n_classes, device=self.device, requires_grad=True)
-        optimizer = optim.LBFGS([logits], lr=1.0, max_iter=20, line_search_fn="strong_wolfe")
+        optimizer = optim.Adam([logits], lr=0.2)
 
-        iteration = [0]
-        best_loss = [float("inf")]
-        best_prevalences = [None]
+        best_loss = float("inf")
+        best_prevalences = None
+        tol = 1e-6
+        patience = 10
+        no_improve = 0
 
-        def closure():
+        for _ in range(100):
             optimizer.zero_grad()
+
             prevalences = torch.softmax(logits, dim=0)
             log_prevalences = torch.log(prevalences + 1e-10)
-            log_weighted_densities = log_densities + log_prevalences
 
-            max_log, _ = log_weighted_densities.max(dim=1, keepdim=True)
-            log_mixture = max_log + torch.log(torch.exp(log_weighted_densities - max_log).sum(dim=1, keepdim=True))
+            log_weighted = log_densities + log_prevalences
+            max_log = log_weighted.max(dim=1, keepdim=True)[0]
+            log_mixture = max_log + torch.log(torch.exp(log_weighted - max_log).sum(dim=1, keepdim=True))
 
             nll = -log_mixture.sum()
             nll.backward()
+            optimizer.step()
 
             current_loss = nll.item()
-            if current_loss < best_loss[0]:
-                best_loss[0] = current_loss
-                best_prevalences[0] = torch.softmax(logits.detach().clone(), dim=0)
+            if current_loss < best_loss - tol:
+                best_loss = current_loss
+                best_prevalences = prevalences.detach().clone()
+                no_improve = 0
+            else:
+                no_improve += 1
 
-            iteration[0] += 1
-            return nll
-
-        for _ in range(self.max_optim_iter // 20):
-            optimizer.step(closure)
-            if iteration[0] >= self.max_optim_iter:
+            if no_improve >= patience:
                 break
 
-        prevalences = best_prevalences[0] if best_prevalences[0] is not None else torch.softmax(logits.detach(), dim=0)
-        return prevalences
+        prevalences = best_prevalences if best_prevalences is not None else torch.softmax(logits.detach(), dim=0)
+        return prevalences / prevalences.sum()
