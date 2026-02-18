@@ -37,7 +37,7 @@ def run_deploy(args: Namespace):
     _info = host_info[args.host]
     _dest = f"{_info['addr']}:{_info['workdir']}"
     commands = [
-        f"rsync -ai src svm_light tests {_dest}",
+        f"rsync -ai src svm_light tests data {_dest}",
         f"rsync -i README.md env.json pyproject.toml {_dest}",
     ]
 
