@@ -97,43 +97,43 @@ def gen_model_args(d_info: DatasetInfo) -> Iterator[ClassifierInfo]:
     def ovverride_params(model_name: str, args: SentimentArgs, d_info: DatasetInfo):
         _overrides = {
             ("*", "stanfordnlp/imdb"): dict(
-                nepochs=3,
-                lr=2e-5,
+                nepochs=5,
+                lr=4e-3,
                 warmup_steps=200,
-                train_hl=True,
+                train_hl=False,
             ),
             ("*", "stanfordnlp/sst2"): dict(
-                nepochs=3,
-                lr=2e-5,
+                nepochs=5,
+                lr=4e-3,
                 warmup_steps=300,
-                train_hl=True,
+                train_hl=False,
             ),
             ("*", "fancyzhx/yelp_polarity"): dict(
-                nepochs=3,
-                lr=2e-5,
+                nepochs=5,
+                lr=4e-3,
                 warmup_steps=500,
-                train_hl=True,
+                train_hl=False,
             ),
             ("*", "fancyzhx/ag_news"): dict(
-                nepochs=3,
-                lr=2e-5,
+                nepochs=5,
+                lr=2e-3,
                 warmup_steps=500,
                 max_length=256,
-                train_hl=True,
+                train_hl=False,
             ),
             ("*", "fancyzhx/dbpedia_14"): dict(
-                nepochs=3,
-                lr=2e-5,
+                nepochs=5,
+                lr=2e-3,
                 warmup_steps=1000,
                 max_length=256,
-                train_hl=True,
+                train_hl=False,
             ),
             ("*", "community-datasets/yahoo_answers_topics"): dict(
-                nepochs=3,
-                lr=2e-5,
+                nepochs=5,
+                lr=2e-3,
                 warmup_steps=1000,
                 max_length=256,
-                train_hl=True,
+                train_hl=False,
             ),
         }
 
@@ -213,13 +213,54 @@ def get_embed_outdir(args):
     return outdir
 
 
-def fix_dataset_fields(d_info, dataset):
-    to_remove = {
+def get_dataset(d_info: DatasetInfo):
+    """
+    Load dataset and create validation split if does not exist.
+    Also check that the number of classes matches the expected number.
+    """
+    _splits_size = {
+        "stanfordnlp/imdb": (12500, 12500),
+        "stanfordnlp/sst2": (20000, 20000),
+        "fancyzhx/yelp_polarity": (60000, 25000),
+        "fancyzhx/ag_news": (60000, 25000),
+        "fancyzhx/dbpedia_14": (225000, 25000),
+        "community-datasets/yahoo_answers_topics": (225000, 25000),
+    }
+    _fields_to_remove = {
         "stanfordnlp/sst2": ["sentence"],
         "fancyzhx/dbpedia_14": ["title", "content"],
         "community-datasets/yahoo_answers_topics": ["question_title", "question_content", "best_answer", "topic"],
     }
+
     d_name = hf_dataset_map.get(d_info.name, d_info.name)
+
+    if d_name == "stanfordnlp/imdb":
+        dataset = load_dataset(d_name)
+        _, val_size = _splits_size[d_name]
+        _tmp_dataset = dataset["train"].train_test_split(test_size=val_size, seed=qp.environ["_R_SEED"])
+        dataset["train"] = _tmp_dataset["train"]
+        dataset["validation"] = _tmp_dataset["test"]
+        del dataset["unsupervised"]
+    elif d_name in [
+        "stanfordnlp/sst2",
+        "fancyzhx/yelp_polarity",
+        "fancyzhx/ag_news",
+        "fancyzhx/dbpedia_14",
+        "community-datasets/yahoo_answers_topics",
+    ]:
+        dataset = load_dataset(d_name)
+
+        if d_name == "stanfordnlp/sst2":
+            _whole_set = concatenate_datasets([dataset["train"], dataset["validation"]])
+        else:
+            _whole_set = concatenate_datasets([dataset["train"], dataset["test"]])
+
+        train_size, val_size = _splits_size[d_name]
+        _tmp_split = _whole_set.train_test_split(train_size=train_size + val_size, seed=qp.environ["_R_SEED"])
+        dataset["test"] = _tmp_split["test"]
+        _tmp_trainval = _tmp_split["train"].train_test_split(train_size=train_size, seed=qp.environ["_R_SEED"])
+        dataset["train"] = _tmp_trainval["train"]
+        dataset["validation"] = _tmp_trainval["test"]
 
     def combine_fields(split):
         if d_name == "stanfordnlp/sst2":
@@ -233,41 +274,7 @@ def fix_dataset_fields(d_info, dataset):
         return split
 
     dataset = dataset.map(combine_fields)
-    dataset = dataset.remove_columns(to_remove.get(d_name, []))
-
-    return dataset
-
-
-def get_dataset(d_info: DatasetInfo):
-    """
-    Load dataset and create validation split if does not exist.
-    Also check that the number of classes matches the expected number.
-    """
-    dataset = load_dataset(hf_dataset_map.get(d_info.name, d_info.name))
-    dataset = fix_dataset_fields(d_info, dataset)
-
-    if "validation" in dataset:
-        trainval = concatenate_datasets([dataset["train"], dataset["validation"]])
-        dataset["train"] = trainval
-
-    # for sst2: discard unlabelled test set and split training set using 0.3 ratio for test
-    if hf_dataset_map.get(d_info.name, d_info.name) == "stanfordnlp/sst2":
-        _tmp_dataset = dataset["train"].train_test_split(test_size=0.3, seed=qp.environ["_R_SEED"])
-        dataset["train"] = _tmp_dataset["train"]
-        dataset["test"] = _tmp_dataset["test"]
-
-    val_split = get_val_split(d_info.name)
-    sout("splitting training set into train/validation...")
-    _tmp_dataset = dataset["train"].train_test_split(test_size=val_split, seed=qp.environ["_R_SEED"])
-    dataset["train"] = _tmp_dataset["train"]
-    dataset["validation"] = _tmp_dataset["test"]
-
-    fe_size = min(int(2e4), dataset["validation"].num_rows)
-    if fe_size < dataset["validation"].num_rows:
-        _tmp_fe_set = dataset["validation"].train_test_split(test_size=fe_size, seed=qp.environ["_R_SEED"])
-        dataset["fast_eval"] = _tmp_fe_set["test"]
-    else:
-        dataset["fast_eval"] = dataset["validation"]
+    dataset = dataset.remove_columns(_fields_to_remove.get(d_name, []))
 
     n_inferred_classes = np.unique(dataset["train"]["label"]).shape[0]
     if d_info.n_classes != n_inferred_classes:
@@ -359,7 +366,7 @@ def train_model(args: SentimentArgs, p_info: PretainInfo, model, dataset, parser
     trainer = Trainer(
         model=model,
         train_dataset=dataset["train"],
-        eval_dataset=dataset["fast_eval"],
+        eval_dataset=dataset["validation"],
         args=trainer_args,
         compute_metrics=compute_clf_metrics,
         callbacks=[
