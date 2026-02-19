@@ -115,9 +115,9 @@ def gen_datasets() -> Iterator[DatasetInfo]:
 def gen_model_args(d_info: DatasetInfo) -> Iterator[ClassifierInfo]:
     def ovverride_params(model_name: str, args: VisionArgs, d_info: DatasetInfo):
         _overrides = {
-            ("*", "mnist"): dict(nepochs=5, lr=4e-3, warmup_steps=200, train_bsize=64, train_hl=False, weight_decay=0.0),
-            ("*", "cifar10"): dict(nepochs=5, lr=4e-3, warmup_steps=200, train_bsize=64, train_hl=False, weight_decay=0.0),
-            ("*", "cifar100"): dict(nepochs=5, lr=2e-3, warmup_steps=200, train_bsize=64, train_hl=False, weight_decay=0.0),
+            ("*", "mnist"): dict(nepochs=10, lr=5e-4, warmup_steps=200, train_bsize=64, train_hl=True, weight_decay=0.05),
+            ("*", "cifar10"): dict(nepochs=10, lr=5e-4, warmup_steps=200, train_bsize=64, train_hl=True, weight_decay=0.05),
+            ("*", "cifar100"): dict(nepochs=10, lr=3e-4, warmup_steps=200, train_bsize=64, train_hl=True, weight_decay=0.05),
         }
 
         d_name = hf_dataset_map.get(d_info.name, d_info.name)
