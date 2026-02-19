@@ -46,43 +46,6 @@ def image():
     print(STL10(root=os.path.join("data", "datasets"), download=True))
 
 
-def download_imagenet():
-    url_train = "https://image-net.org/data/ILSVRC/2012/ILSVRC2012_img_train.tar"
-    url_val = "https://image-net.org/data/ILSVRC/2012/ILSVRC2012_img_val.tar"
-
-    dest_dir = os.path.join("data", "datasets")
-    os.makedirs(dest_dir, exist_ok=True)
-
-    train_filename = url_train.split("/")[-1]
-    val_filename = url_val.split("/")[-1]
-    train_path = os.path.join(dest_dir, train_filename)
-    val_path = os.path.join(dest_dir, val_filename)
-
-    try:
-        with requests.get(url_train, stream=True) as r:
-            r.raise_for_status()  # Controlla se ci sono errori HTTP
-
-            with open(train_path, "wb") as f:
-                for chunk in tqdm(
-                    r.iter_content(chunk_size=8192), desc="train", total=int(r.headers.get("content-length", 0)) // 8192
-                ):
-                    if chunk:  # filtra i keep-alive chunks
-                        f.write(chunk)
-
-        with requests.get(url_val, stream=True) as r:
-            r.raise_for_status()  # Controlla se ci sono errori HTTP
-
-            with open(val_path, "wb") as f:
-                for chunk in tqdm(
-                    r.iter_content(chunk_size=8192), desc="val", total=int(r.headers.get("content-length", 0)) // 8192
-                ):
-                    if chunk:  # filtra i keep-alive chunks
-                        f.write(chunk)
-
-    except requests.exceptions.RequestException as e:
-        print(f"Errore durante il download: {e}")
-
-
 def imagenet_lt():
     def load_set(split):
         path = os.path.join("data", f"ImageNet_LT_{split}.txt")
@@ -130,7 +93,6 @@ if __name__ == "__main__":
     parser.add_argument("--text", action="store_const", dest="domain", const="text")
     parser.add_argument("--image", action="store_const", dest="domain", const="image")
     parser.add_argument("--imagenet-lt", action="store_const", dest="domain", const="imagenet_lt")
-    parser.add_argument("--imagenet", action="store_const", dest="domain", const="imagenet")
     pargs = parser.parse_args()
 
     if pargs.domain is None:
@@ -140,8 +102,6 @@ if __name__ == "__main__":
         text()
     elif pargs.domain == "image":
         image()
-    elif pargs.domain == "imagenet":
-        download_imagenet()
     elif pargs.domain == "imagenet_lt":
         imagenet_lt()
     else:
