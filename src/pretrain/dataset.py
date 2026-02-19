@@ -6,6 +6,7 @@ from glob import glob
 import numpy as np
 import quapy as qp
 import requests
+from datasets import Dataset, DatasetDict, Image, load_from_disk
 from quapy.data import LabelledCollection
 from sklearn.model_selection import train_test_split
 from tqdm import tqdm
@@ -77,12 +78,9 @@ def download_imagenet_split(name):
         print(f"Errore durante il download di {name}: {e}")
 
 
-def extract_imagenet_split(name):
-    filename = {
-        "train": "ILSVRC2012_img_train.tar",
-        "val": "ILSVRC2012_img_val.tar",
-    }[name]
-
+def extract_imagenet_train():
+    name = "train"
+    filename = "ILSVRC2012_img_train.tar"
     dest_dir = os.path.join("data", "datasets", "imagenet-1k")
     os.makedirs(dest_dir, exist_ok=True)
 
@@ -104,13 +102,46 @@ def extract_imagenet_split(name):
         sb.run(f"rm {path}", shell=True)
 
 
-def extract_imagenet():
+def extract_imagenet_val():
+    name = "val"
+    filename = "ILSVRC2012_img_val.tar"
+    dest_dir = os.path.join("data", "datasets", "imagenet-1k")
+    os.makedirs(dest_dir, exist_ok=True)
 
-    extract_imagenet_split("train")
-    extract_imagenet_split("val")
+    split_dir = os.path.join(dest_dir, name)
+    if os.path.exists(split_dir) and len(glob(os.path.join(split_dir, "*"))) > 1:
+        return
+    os.makedirs(split_dir, exist_ok=True)
+
+    lt_tes_path = os.path.join("data", "ImageNet_LT_test.txt")
+    class_map = {}
+    with open(lt_tes_path, "r") as f:
+        for line in f.readlines():
+            dest_path, _ = tuple(map(lambda s: s.strip(), line.strip().split(" ", maxsplit=1)))
+            parts = dest_path.split("/")
+            class_map[parts[2]] = parts[1]
+
+    tar_path = os.path.join(dest_dir, filename)
+    if not os.path.exists(tar_path):
+        download_imagenet_split(name)
+
+    sb.run(f"tar -xf {tar_path} -C {split_dir}", shell=True)
+    sb.run(f"rm {tar_path}", shell=True)
+    for path in tqdm(glob(os.path.join(split_dir, "*.JPEG")), desc=f"fixing {name}"):
+        img_name = os.path.basename(path)
+        class_name = class_map[img_name]
+        class_dir = os.path.join(split_dir, class_name)
+        os.makedirs(class_dir, exist_ok=True)
+        dest_path = os.path.join(class_dir, img_name)
+        os.rename(path, dest_path)
 
 
-def build_imagenet_lt():
+def get_imagenet():
+    extract_imagenet_train()
+    extract_imagenet_val()
+
+
+def build_imagenet_lt(val_size=20000):
     def load_set(split) -> tuple[np.ndarray, np.ndarray]:
         path = os.path.join("data", f"ImageNet_LT_{split}.txt")
         X, y = [], []
@@ -124,6 +155,14 @@ def build_imagenet_lt():
         y = np.asarray(y)
 
         return X, y
+
+    source_dir = os.path.join("data", "datasets", "imagenet-1k")
+    dest_dir = os.path.join("data", "datasets", "imagenet-lt")
+    # if os.path.exists(dest_dir):
+    #     return
+    os.makedirs(dest_dir, exist_ok=True)
+
+    get_imagenet()
 
     train_X, train_y = load_set("train")
     val_X, val_y = load_set("val")
@@ -140,10 +179,32 @@ def build_imagenet_lt():
         stratify=trainval_y,
     )
 
-    for x in test_X[:20]:
-        print(x)
+    def fix_image_path(p):
+        return os.path.join(source_dir, p)
+
+    train_dict = {"image": list(map(fix_image_path, ns_train_X.tolist())), "label": ns_train_y.tolist()}
+    val_dict = {"image": list(map(fix_image_path, ns_val_X.tolist())), "label": ns_val_y.tolist()}
+    test_dict = {"image": list(map(fix_image_path, test_X.tolist())), "label": test_y.tolist()}
+
+    train_ds = Dataset.from_dict(train_dict).cast_column("image", Image())
+    val_ds = Dataset.from_dict(val_dict).cast_column("image", Image())
+    test_ds = Dataset.from_dict(test_dict).cast_column("image", Image())
+
+    dataset = DatasetDict(
+        {
+            "train": train_ds,
+            "validation": val_ds,
+            "test": test_ds,
+        }
+    )
+
+    dataset.save_to_disk(dest_dir)
 
 
 if __name__ == "__main__":
     qp.environ["_R_SEED"] = 0
-    download_imagenet_split("val")
+    build_imagenet_lt()
+
+    ds = load_from_disk(os.path.join("data", "datasets", "imagenet-lt"))
+    print(ds)
+    print(type(ds["train"]["image"][0]))
