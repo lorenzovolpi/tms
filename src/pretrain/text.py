@@ -130,7 +130,7 @@ def gen_model_args(d_info: DatasetInfo) -> Iterator[ClassifierInfo]:
             ),
             ("*", "community-datasets/yahoo_answers_topics"): dict(
                 nepochs=5,
-                lr=2e-3,
+                lr=4e-3,
                 warmup_steps=1000,
                 max_length=256,
                 train_hl=False,
