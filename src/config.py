@@ -1,3 +1,4 @@
+import functools
 import itertools as IT
 from collections import defaultdict
 from typing import Callable, Iterable, Literal, Tuple
@@ -14,12 +15,12 @@ from sklearn.neighbors import KNeighborsClassifier as KNN
 from sklearn.neural_network import MLPClassifier as MLP
 from sklearn.svm import SVC
 
-import env
 from data import ClassifierInfo, PretainInfo, load_info_paths
 from method.ims import IMS
-from method.tms import LEAP, RQBS, DoC, PrediQuant
+from method.tms import LEAP, RQBS
+from pretrain.dataset import load_dataset
 from svmlight import SVMlight
-from util import all_results_exist, sort_datasets_by_size
+from util import all_results_exist
 
 
 def kdey():
@@ -172,6 +173,7 @@ def gen_methods():
     yield "IMS", IMS(acc)
     yield "TMS_LEAP", LEAP(acc)
     yield "TMS_RQBS", RQBS(acc)
+    # yield "TMS_RQBS-bs", RQBS(acc, bootstrap=True)
     # yield "TMS_RQBScap", RQBScap()
     # yield "TMS_PrediQuant", PrediQuant(acc)
     # yield "TMS_DoC", DoC(acc)
@@ -217,3 +219,31 @@ def get_method_names():
     names = [m for m, _ in gen_methods()]
 
     return names
+
+
+def sort_datasets_by_size(dataset_coll: str | list[str], dataset_names: list[str], descending=True):
+    @functools.lru_cache(maxsize=len(UCI_BINARY_DATASETS) + len(UCI_MULTICLASS_DATASETS))
+    def get_dataset_size(name, coll):
+        _len = 0
+        if coll == "uci_binary":
+            L, V, U = fetch_UCIBinaryDataset(name)
+            _len = len(L) + len(V) + len(U)
+        elif coll == "uci_multiclass":
+            L, V, U = fetch_UCIMulticlassDataset(name)
+            _len = len(L) + len(V) + len(U)
+        elif coll == "text":
+            _, V, U = load_dataset("text", name)
+            _len = len(V) + len(U)
+        elif coll == "image":
+            _, V, U = load_dataset("image", name)
+            _len = len(V) + len(U)
+        else:
+            raise ValueError(f"Unknown dataset collection: {coll}")
+
+        return _len
+
+    dataset_colls = dataset_coll if isinstance(dataset_coll, list) else [dataset_coll] * len(dataset_names)
+
+    datasets = [(d, get_dataset_size(d, c)) for d, c in zip(dataset_names, dataset_colls)]
+    datasets.sort(key=(lambda d: d[1]), reverse=descending)
+    return [d for (d, _) in datasets]
