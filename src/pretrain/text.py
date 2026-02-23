@@ -27,7 +27,7 @@ from transformers.trainer_utils import get_last_checkpoint
 
 from data import ClassifierInfo, DatasetInfo, PretainInfo
 from env import PROJECT
-from pretrain.dataset import save_dataset
+from pretrain.dataset import get_hf_dataset, get_local_hf_dataset, save_dataset
 from util import get_logger
 
 EXPERIMENT = "pretrain"
@@ -91,6 +91,10 @@ def gen_datasets() -> Iterator[DatasetInfo]:
     yield _fdataset("fancyzhx/ag_news", 4)
     yield _fdataset("fancyzhx/dbpedia_14", 14)
     yield _fdataset("community-datasets/yahoo_answers_topics", 10)
+    yield _fdataset("yelp_reviews", 5)
+    yield _fdataset("rcv1-v2", 68)
+    yield _fdataset("ag_news-lt", 4)
+    yield _fdataset("dbpedia_14-lt", 14)
 
 
 def gen_model_args(d_info: DatasetInfo) -> Iterator[ClassifierInfo]:
@@ -135,6 +139,33 @@ def gen_model_args(d_info: DatasetInfo) -> Iterator[ClassifierInfo]:
                 max_length=256,
                 train_hl=True,
             ),
+            ("*", "yelp_reviews"): dict(
+                nepochs=3,
+                lr=2e-5,
+                warmup_steps=500,
+                train_hl=True,
+            ),
+            ("*", "rcv1-v2"): dict(
+                nepochs=10,
+                lr=2e-5,
+                warmup_steps=1000,
+                max_length=256,
+                train_hl=True,
+            ),
+            ("*", "ag_news-lt"): dict(
+                nepochs=3,
+                lr=2e-5,
+                warmup_steps=500,
+                max_length=256,
+                train_hl=True,
+            ),
+            ("*", "dbpedia_14-lt"): dict(
+                nepochs=3,
+                lr=2e-5,
+                warmup_steps=1000,
+                max_length=256,
+                train_hl=True,
+            ),
         }
 
         d_name = hf_dataset_map.get(d_info.name, d_info.name)
@@ -162,19 +193,6 @@ def gen_config():
     for d_info in gen_datasets():
         for h_info in gen_model_args(d_info):
             yield d_info, h_info
-
-
-def get_val_split(dataset):
-    _default = 0.5
-    _val_splits = {
-        "stanfordnlp/imdb": 0.6,
-        "fancyzhx/yelp_polarity": 0.9,
-        "stanfordnlp/sst2": 0.58,
-        "fancyzhx/ag_news": 0.5,
-        "fancyzhx/dbpedia_14": 0.6,
-        "community-datasets/yahoo_answers_topics": 0.82,
-    }
-    return _val_splits.get(hf_dataset_map.get(dataset, dataset), _default)
 
 
 @dataclass
@@ -218,63 +236,25 @@ def get_dataset(d_info: DatasetInfo):
     Load dataset and create validation split if does not exist.
     Also check that the number of classes matches the expected number.
     """
-    _splits_size = {
-        "stanfordnlp/imdb": (12500, 12500),
-        "stanfordnlp/sst2": (20000, 20000),
-        "fancyzhx/yelp_polarity": (60000, 25000),
-        "fancyzhx/ag_news": (60000, 25000),
-        "fancyzhx/dbpedia_14": (225000, 25000),
-        "community-datasets/yahoo_answers_topics": (225000, 25000),
-    }
-    _fields_to_remove = {
-        "stanfordnlp/sst2": ["sentence"],
-        "fancyzhx/dbpedia_14": ["title", "content"],
-        "community-datasets/yahoo_answers_topics": ["question_title", "question_content", "best_answer", "topic"],
-    }
 
     d_name = hf_dataset_map.get(d_info.name, d_info.name)
 
-    if d_name == "stanfordnlp/imdb":
-        dataset = load_dataset(d_name)
-        _, val_size = _splits_size[d_name]
-        _tmp_dataset = dataset["train"].train_test_split(test_size=val_size, seed=qp.environ["_R_SEED"])
-        dataset["train"] = _tmp_dataset["train"]
-        dataset["validation"] = _tmp_dataset["test"]
-        del dataset["unsupervised"]
-    elif d_name in [
+    if d_name in [
+        "stanfordnlp/imdb",
         "stanfordnlp/sst2",
         "fancyzhx/yelp_polarity",
         "fancyzhx/ag_news",
         "fancyzhx/dbpedia_14",
         "community-datasets/yahoo_answers_topics",
     ]:
-        dataset = load_dataset(d_name)
-
-        if d_name == "stanfordnlp/sst2":
-            _whole_set = concatenate_datasets([dataset["train"], dataset["validation"]])
-        else:
-            _whole_set = concatenate_datasets([dataset["train"], dataset["test"]])
-
-        train_size, val_size = _splits_size[d_name]
-        _tmp_split = _whole_set.train_test_split(train_size=train_size + val_size, seed=qp.environ["_R_SEED"])
-        dataset["test"] = _tmp_split["test"]
-        _tmp_trainval = _tmp_split["train"].train_test_split(train_size=train_size, seed=qp.environ["_R_SEED"])
-        dataset["train"] = _tmp_trainval["train"]
-        dataset["validation"] = _tmp_trainval["test"]
-
-    def combine_fields(split):
-        if d_name == "stanfordnlp/sst2":
-            split["text"] = f"{split['sentence']}"
-        elif d_name == "fancyzhx/dbpedia_14":
-            split["text"] = f"{split['title']}\n{split['content']}"
-        elif d_name == "community-datasets/yahoo_answers_topics":
-            split["text"] = f"{split['question_title']}\n{split['question_content']}\n{split['best_answer']}"
-            split["label"] = split["topic"]
-
-        return split
-
-    dataset = dataset.map(combine_fields)
-    dataset = dataset.remove_columns(_fields_to_remove.get(d_name, []))
+        dataset = get_hf_dataset(d_name)
+    elif d_name in [
+        "yelp_reviews",
+        "rcv1-v2",
+        "ag_news-lt",
+        "dbpedia_14-lt",
+    ]:
+        dataset = get_local_hf_dataset(d_name)
 
     n_inferred_classes = np.unique(dataset["train"]["label"]).shape[0]
     if d_info.n_classes != n_inferred_classes:

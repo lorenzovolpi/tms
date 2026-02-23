@@ -7,7 +7,7 @@ from typing import Any, Callable, Iterator
 import numpy as np
 import quapy as qp
 import torch
-from datasets import concatenate_datasets, load_dataset
+from datasets import concatenate_datasets, load_dataset, load_from_disk
 from sklearn.metrics import accuracy_score, f1_score
 from torch.utils.data import DataLoader
 from torchvision.transforms import (
@@ -37,7 +37,7 @@ from transformers.trainer_utils import get_last_checkpoint
 
 from data import ClassifierInfo, DatasetInfo, PretainInfo
 from env import PROJECT
-from pretrain.dataset import save_dataset
+from pretrain.dataset import get_hf_dataset, get_local_hf_dataset, save_dataset
 from util import get_logger
 
 EXPERIMENT = "pretrain"
@@ -108,16 +108,29 @@ def gen_datasets() -> Iterator[DatasetInfo]:
     yield _fdataset("mnist", 10)
     yield _fdataset("cifar10", 10)
     yield _fdataset("cifar100", 100)
-    # yield _fdataset("ILSVRC/imagenet-1k", 1000)
+    yield _fdataset("ethz/food101", 101)
+    # yield _fdataset("caltech256", 257)
+    yield _fdataset("imagenet-lt200", 200)
+    yield _fdataset("imagenet-lt100", 200)
+    yield _fdataset("cifar10-lt", 10)
+    yield _fdataset("cifar100-lt", 100)
+    yield _fdataset("food101-lt", 101)
 
 
 # fmt: off
 def gen_model_args(d_info: DatasetInfo) -> Iterator[ClassifierInfo]:
     def ovverride_params(model_name: str, args: VisionArgs, d_info: DatasetInfo):
         _overrides = {
-            ("*", "mnist"): dict(nepochs=10, lr=5e-4, warmup_steps=200, train_bsize=64, train_hl=True, weight_decay=0.05),
-            ("*", "cifar10"): dict(nepochs=10, lr=5e-4, warmup_steps=200, train_bsize=64, train_hl=True, weight_decay=0.05),
-            ("*", "cifar100"): dict(nepochs=10, lr=3e-4, warmup_steps=200, train_bsize=64, train_hl=True, weight_decay=0.05),
+            ("*", "mnist"): dict(nepochs=5, lr=5e-4, warmup_steps=200, train_bsize=64, train_hl=True, weight_decay=0.05),
+            ("*", "cifar10"): dict(nepochs=5, lr=5e-4, warmup_steps=200, train_bsize=64, train_hl=True, weight_decay=0.05),
+            ("*", "cifar100"): dict(nepochs=5, lr=3e-4, warmup_steps=200, train_bsize=64, train_hl=True, weight_decay=0.05),
+            # ("*", "caltech256"): dict(nepochs=5, lr=3e-4, warmup_steps=200, train_bsize=64, train_hl=True, weight_decay=0.05),
+            ("*", "ethz/food101"): dict(nepochs=5, lr=3e-4, warmup_steps=200, train_bsize=64, train_hl=True, weight_decay=0.05),
+            ("*", "imagenet-lt200"): dict(nepochs=5, lr=3e-4, warmup_steps=200, train_bsize=64, train_hl=True, weight_decay=0.05),
+            ("*", "imagenet-lt100"): dict(nepochs=5, lr=3e-4, warmup_steps=200, train_bsize=64, train_hl=True, weight_decay=0.05),
+            ("*", "cifar10-lt"): dict(nepochs=5, lr=5e-4, warmup_steps=200, train_bsize=64, train_hl=True, weight_decay=0.05),
+            ("*", "cifar100-lt"): dict(nepochs=5, lr=3e-4, warmup_steps=200, train_bsize=64, train_hl=True, weight_decay=0.05),
+            ("*", "food101-lt"): dict(nepochs=5, lr=3e-4, warmup_steps=200, train_bsize=64, train_hl=True, weight_decay=0.05),
         }
 
         d_name = hf_dataset_map.get(d_info.name, d_info.name)
@@ -187,49 +200,13 @@ class VisionArgs:
         return VisionArgs(**(self.params | params))
 
 
-def fix_dataset_fields(d_info, dataset):
-    to_remove = {
-        "cifar10": ["img"],
-        "cifar100": ["img", "fine_label", "coarse_label"],
-    }
-    d_name = hf_dataset_map.get(d_info.name, d_info.name)
-
-    def combine_fields(split):
-        if d_name == "cifar10":
-            split["image"] = split["img"]
-        if d_name == "cifar100":
-            split["image"] = split["img"]
-            split["label"] = split["fine_label"]
-
-        return split
-
-    dataset = dataset.map(combine_fields)
-    dataset = dataset.remove_columns(to_remove.get(d_name, []))
-
-    return dataset
-
-
 def get_dataset(d_info: DatasetInfo):
     d_name = hf_dataset_map.get(d_info.name, d_info.name)
-    dataset = load_dataset(d_name)
-    dataset = fix_dataset_fields(d_info, dataset)
 
-    if "validation" in dataset:
-        trainval = concatenate_datasets([dataset["train"], dataset["validation"]])
-        dataset["train"] = trainval
-
-    val_split = get_val_split(d_info.name)
-    sout("splitting training set into train/validation...")
-    _tmp_dataset = dataset["train"].train_test_split(test_size=val_split, seed=qp.environ["_R_SEED"])
-    dataset["train"] = _tmp_dataset["train"]
-    dataset["validation"] = _tmp_dataset["test"]
-
-    fe_size = min(int(2e4), dataset["validation"].num_rows)
-    if fe_size < dataset["validation"].num_rows:
-        _tmp_fe_set = dataset["validation"].train_test_split(test_size=fe_size, seed=qp.environ["_R_SEED"])
-        dataset["fast_eval"] = _tmp_fe_set["test"]
-    else:
-        dataset["fast_eval"] = dataset["validation"]
+    if d_name in ["mnist", "cifar10", "cifar100", "ethz/food101"]:
+        dataset = get_hf_dataset(d_name)
+    elif d_name in ["caltech256", "imagenet-lt200", "imagenet-lt100", "cifar10-lt", "cifar100-lt", "food101-lt"]:
+        dataset = get_local_hf_dataset(d_name)
 
     return dataset
 
@@ -256,11 +233,11 @@ def create_transforms(image_processor, d_name, is_train=True):
     if is_train:
         if d_name == "mnist":
             transforms = Compose([RandomResizedCrop(size), RandomHorizontalFlip(), ToTensor(), normalize])
-        elif d_name == "cifar10":
+        elif d_name in ["cifar10", "cifar10-lt"]:
             transforms = Compose(
                 [Resize(size), RandomCrop(size, padding=4), RandomHorizontalFlip(p=0.5), ToTensor(), normalize]
             )
-        elif d_name == "cifar100":
+        elif d_name in ["cifar100", "cifar100-lt"]:
             transforms = Compose(
                 [
                     Resize(size),
@@ -272,6 +249,30 @@ def create_transforms(image_processor, d_name, is_train=True):
                     RandomErasing(p=0.5, scale=(0.02, 0.33), ratio=(0.3, 3.3)),
                 ]
             )
+        elif d_name in ["ethz/food101", "food101-lt"]:
+            transforms = Compose(
+                [
+                    RandomResizedCrop(size),
+                    RandomHorizontalFlip(),
+                    ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2),
+                    ToTensor(),
+                    normalize,
+                ]
+            )
+        elif d_name == "ljnlonoljpiljm/caltech256":
+            transforms = Compose([RandomResizedCrop(size), RandomHorizontalFlip(), ToTensor(), normalize])
+        elif d_name == "imagenet-lt200":
+            transforms = Compose(
+                [
+                    RandomResizedCrop(size),
+                    RandomHorizontalFlip(),
+                    ColorJitter(brightness=0.3, contrast=0.3, saturation=0.3, hue=0.1),
+                    ToTensor(),
+                    normalize,
+                ]
+            )
+        else:
+            transforms = Compose([RandomResizedCrop(size), RandomHorizontalFlip(), ToTensor(), normalize])
     else:
         transforms = Compose([Resize((size, size)), ToTensor(), normalize])
 
@@ -304,7 +305,7 @@ def preprocess_dataset(args: VisionArgs, image_processor, dataset, d_name):
     val_transforms = create_transforms(image_processor, d_name, is_train=False)
 
     dataset["train"] = dataset["train"].with_transform(lambda examples: preprocess_images(examples, train_transforms))
-    for split in ["validation", "fast_eval", "test"]:
+    for split in ["validation", "test"]:
         dataset[split] = dataset[split].with_transform(lambda examples: preprocess_images(examples, val_transforms))
 
     return dataset
@@ -379,7 +380,7 @@ def train_model(args: VisionArgs, p_info: PretainInfo, model, dataset, parser_ar
     trainer = Trainer(
         model=model,
         train_dataset=dataset["train"],
-        eval_dataset=dataset["fast_eval"],
+        eval_dataset=dataset["validation"],
         args=training_args,
         compute_metrics=compute_clf_metrics,
         callbacks=[
