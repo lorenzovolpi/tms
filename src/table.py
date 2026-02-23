@@ -41,6 +41,10 @@ dataset_map = {
     "fancyzhx__ag_news": "ag-news",
     "fancyzhx__dbpedia_14": "dbpedia-14",
     "community-datasets__yahoo_answers_topics": "yahoo-answers-topics",
+    "yelp_reviews": "yelp-reviews",
+    "ag_news-lt": "ag-news-lt",
+    "dbpedia_14-lt": "dbpedia-14-lt",
+    "ethz__food101": "food101",
 }
 
 
