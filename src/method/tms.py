@@ -47,12 +47,14 @@ class RQBS(TMS):
         n_vsamples: int = 100,
         sample_size: int = None,
         aggr: Literal["mean", "median"] = "median",
+        bootstrap=False,
     ):
         super().__init__(acc)
         self.rqbs_params = dict(
             n_vsamples=n_vsamples,
             sample_size=sample_size,
             aggr=aggr,
+            bootstrap=bootstrap,
         )
 
     @override
