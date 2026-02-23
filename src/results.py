@@ -70,11 +70,13 @@ class Results(ABC):
         acc_name="*",
         dataset="*",
         domain="*",
+        stem=None,
         filter_methods: list[str] | None = None,
     ) -> "Results":
         dfs = []
+        filename = "*.parquet" if stem is None else f"{stem}.parquet"
         for path in glob(
-            os.path.join(base_dir, domain, acc_name, dataset, "**", "*.parquet"),
+            os.path.join(base_dir, domain, acc_name, dataset, "**", filename),
             recursive=True,
         ):
             if filter_methods is None or Path(path).parent.name in filter_methods:
@@ -218,6 +220,24 @@ class Results(ABC):
             dfs.append(odf)
 
         return Results(pd.concat(dfs, axis=0))
+
+    def best_classifiers(self, rank_label="ranking_vals") -> list[str]:
+        mdf = self.df
+        # filter out classifiers not intended for model selection
+        mdf = mdf.loc[~mdf["ms_ignore"], :]
+        # index data by sample_id (uids) and classifier
+        mdf = mdf.set_index(["uids", "classifier"])
+        # group data by sample_id and dataset and take the index of the maximum in the self.estim_acc_label column
+        best_idx = mdf.groupby(["uids"])[rank_label].idxmax()
+        # use the index to filter the data, resetting the index
+        mdf = mdf.loc[best_idx, :].reset_index(drop=False)
+        best_hs = list(
+            map(
+                lambda x: x[1],
+                sorted(list(mdf[["uids", "classifier"]].itertuples(index=False, name=None)), key=lambda x: x[0]),
+            )
+        )
+        return best_hs
 
     def default_classifier_ms(self, class_name: str) -> "Results":
         dfs = []
