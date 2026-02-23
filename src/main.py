@@ -87,8 +87,21 @@ def exp_protocol(args: tuple[str, str, ModelSelectionMethod]) -> EXP:
     info_path, method_name, method = args
     results = []
 
-    D, h, p = PretainInfo.load(info_path)
+    p = PretainInfo.load(info_path, fast=True)
     d_info, h_info = p.d_info, p.h_info
+
+    all_exist = True
+    for acc in get_acc_names():
+        all_exist = all_exist and os.path.exists(
+            local_path(p.domain, d_info.name, h_info.full_name, method_name, acc, experiment=EXPERIMENT)
+        )
+    if all_exist:
+        results.append(EXP.EXISTS(p, "all", method_name))
+        return results
+
+    D = p.load_dataset_bundle()
+    h = p.load_pretrained_classifier(D)
+
     D.get_posteriors(h)
     if isinstance(method, NeedsValidationProtocol):
         val, val_posteriors = D.V1, D.V1_posteriors
@@ -208,7 +221,7 @@ def experiments():
                 log.info(f"[{r.p.h_info.name}@{r.p.d_info.name}] {r.method_name} on {r.acc_name} exists, skipping")
             elif r.error:
                 log.warning(
-                    f"[{r.h_info.name}@{r.p.d_info.name}] {r.method_name}: {r.acc_name} gave error '{r.err}' - skipping"
+                    f"[{r.p.h_info.name}@{r.p.d_info.name}] {r.method_name}: {r.acc_name} gave error '{r.err}' - skipping"
                 )
 
 
