@@ -1,22 +1,18 @@
 import hashlib
-import json
 import os
 import pickle
-from abc import ABC
-from collections import defaultdict
 from dataclasses import dataclass
 from glob import glob
-from typing import Any, Callable, Dict, Literal, Self, Tuple
+from typing import Any, Dict, Self, Tuple
 
-import joblib
 import numpy as np
 import quapy as qp
 from cap.data.datasets import fetch_UCIBinaryDataset, fetch_UCIMulticlassDataset
 from cap.utils.commons import contingency_table
 from numba import njit
 from quapy.data import LabelledCollection
-from quapy.protocol import UPP, AbstractStochasticSeededProtocol
-from sklearn.base import BaseEstimator, ClassifierMixin, clone
+from quapy.protocol import UPP
+from sklearn.base import BaseEstimator, ClassifierMixin
 
 import env
 from pretrain.dataset import load_dataset
