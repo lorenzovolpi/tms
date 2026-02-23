@@ -1,21 +1,18 @@
-import functools
 import itertools as IT
 import logging
 import os
+from contextlib import contextmanager
 from time import time
 
 import cap
 import numpy as np
 import quapy as qp
-from cap.data.datasets import fetch_UCIBinaryDataset, fetch_UCIMulticlassDataset
 from cap.models.base import ClassifierAccuracyPrediction
 from cap.models.cont_table import CAPContingencyTable
 from quapy.data import LabelledCollection
-from quapy.data.datasets import UCI_BINARY_DATASETS, UCI_MULTICLASS_DATASETS
 from quapy.protocol import UPP
 
 import env
-from pretrain.dataset import load_dataset
 
 
 def fit_or_switch(method: ClassifierAccuracyPrediction, V, V_posteriors, acc_fn, is_fit):
@@ -143,29 +140,11 @@ def one_hot(y: np.ndarray, n_classes: int | None = None):
     return _eye[y, :]
 
 
-def sort_datasets_by_size(dataset_coll: str | list[str], dataset_names: list[str], descending=True):
-    @functools.lru_cache(maxsize=len(UCI_BINARY_DATASETS) + len(UCI_MULTICLASS_DATASETS))
-    def get_dataset_size(name, coll):
-        _len = 0
-        if coll == "uci_binary":
-            L, V, U = fetch_UCIBinaryDataset(name)
-            _len = len(L) + len(V) + len(U)
-        elif coll == "uci_multiclass":
-            L, V, U = fetch_UCIMulticlassDataset(name)
-            _len = len(L) + len(V) + len(U)
-        elif coll == "text":
-            _, V, U = load_dataset("text", name)
-            _len = len(V) + len(U)
-        elif coll == "image":
-            _, V, U = load_dataset("image", name)
-            _len = len(V) + len(U)
-        else:
-            raise ValueError(f"Unknown dataset collection: {coll}")
-
-        return _len
-
-    dataset_colls = dataset_coll if isinstance(dataset_coll, list) else [dataset_coll] * len(dataset_names)
-
-    datasets = [(d, get_dataset_size(d, c)) for d, c in zip(dataset_names, dataset_colls)]
-    datasets.sort(key=(lambda d: d[1]), reverse=descending)
-    return [d for (d, _) in datasets]
+@contextmanager
+def temp_np_seed(seed):
+    state = np.random.get_state()
+    np.random.seed(seed)
+    try:
+        yield
+    finally:
+        np.random.set_state(state)
