@@ -32,3 +32,5 @@ GEMINI.md
 var
 data/imagenet_urls.txt
 
+!output/tms/plots/tas
+
