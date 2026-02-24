@@ -19,8 +19,15 @@ svm_light
 *.lock
 *.json
 
-output
+# output
+output/*
+!output/tms/
+output/tms/*
+!output/tms/plots/
+output/tms/plots/*
+!output/tms/plots/tas/
 output_*
+
 # tests
 old_src
 # src/hoptim.py
@@ -32,5 +39,4 @@ GEMINI.md
 var
 data/imagenet_urls.txt
 
-!output/tms/plots/tas
 
