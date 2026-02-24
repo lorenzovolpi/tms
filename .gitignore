@@ -26,6 +26,7 @@ output/tms/*
 !output/tms/plots/
 output/tms/plots/*
 !output/tms/plots/tas/
+output/tms/plots/tas/*.pdf
 output_*
 
 # tests
