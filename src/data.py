@@ -232,7 +232,7 @@ class PretainInfo:
             _posts["U_logits"] = logits["U"]
         np.savez_compressed(self.posteriors_path, **_posts)
 
-    def load_dataset_bundle(self):
+    def load_dataset_bundle(self) -> DatasetBundle:
         L_prevalence, V, U = load_from_collection(self)
         d_bundle = DatasetBundle(L_prevalence, V, U)
         return d_bundle
@@ -255,7 +255,7 @@ class PretainInfo:
 
         return npz["V_posteriors"], npz["U_posteriors"]
 
-    def load_pretrained_classifier(self, d_bundle: DatasetBundle):
+    def load_pretrained_classifier(self, d_bundle: DatasetBundle) -> PreTrainedClassifier:
         post_path = self.posteriors_path
         _npz = np.load(post_path)
         V_posteriors, U_posteriors = self.load_posteriors(npz=_npz)
