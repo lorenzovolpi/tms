@@ -146,21 +146,25 @@ class rqscore:
         return _bias, p_value
 
 
-def res_dir(score, domain="*"):
-    return os.path.join(env.root_dir, "stattest", score, domain)
+def res_dir(score):
+    return os.path.join(env.root_dir, "stattest", score)
 
 
 def local_path(score, domain, d_name, h_name):
-    dir = res_dir(score, domain)
+    dir = os.path.join(res_dir(score), domain)
     os.makedirs(dir, exist_ok=True)
     return os.path.join(dir, f"{h_name}__{d_name}.parquet")
 
 
+def get_sorted_pinfos(domain) -> list[PretainInfo]:
+    info_paths = load_info_paths(domain=domain)
+    pinfos = sorted([PretainInfo.load(p, fast=True) for p in info_paths], key=lambda p: p.d_info.name)
+    return pinfos
+
+
 def compute_score(domain, score: Literal["rscore", "rqscore"]):
 
-    info_paths = load_info_paths(domain=domain)
-    for path in info_paths:
-        p = PretainInfo.load(path, fast=True)
+    for p in get_sorted_pinfos(domain):
         d_name = dataset_map.get(p.d_info.name, p.d_info.name)
         h_name = clsf_map.get(p.h_info.full_name, p.h_info.full_name)
 
@@ -180,9 +184,7 @@ def compute_score(domain, score: Literal["rscore", "rqscore"]):
             scorer = rqscore(h, n_sample=1000).fit(*D.V.Xy)
 
         data = []
-        for i, Ui in tqdm(
-            enumerate(D.test_prot()), total=D.test_prot.total(), desc=f"{scorer.__class__.__name__} scoring"
-        ):
+        for Ui in tqdm(D.test_prot(), total=D.test_prot.total(), desc=f"{scorer.__class__.__name__} scoring"):
             i_bias, i_pval = scorer.score(Ui.X)
             data.append(
                 dict(
@@ -210,26 +212,30 @@ def load_scores(score) -> pd.DataFrame:
 
 def show_scores(score):
     df = load_scores(score)
+    csv_path = os.path.join(env.root_dir, "stattest", f"{score}.csv")
 
     df["reject"] = df["p_value"] < 0.05
     pivot = pd.pivot_table(df, index=["dataset"], columns=["classifier"], values=["reject"])
-    print(pivot.to_string())
+    pivot.to_csv(csv_path, sep=",")
 
 
 def plot_scores(score):
     df = load_scores(score)
 
-    plot_dir = os.path.join(env.root_dir, "tms", "plots", "stattest")
+    plot_dir = os.path.join(env.root_dir, "plots", "stattest")
     os.makedirs(plot_dir, exist_ok=True)
 
     datasets = df[["domain", "dataset"]].drop_duplicates().values.tolist()
 
     for domain, d_name in datasets:
         ddf = df.loc[df["dataset"] == d_name, :]
-        plot = sns.histplot(ddf, x="p_value", hue="classifier", kde=True)
+        plot = sns.histplot(ddf, x="p_value", hue="classifier", multiple="dodge", binwidth=0.05)
         plot.set_xlim(0, 1)
+        current_xticks = plot.get_xticks().tolist()
+        plot.set_xticks(current_xticks + [0.05])
         plt.savefig(os.path.join(plot_dir, f"{score}_{domain}_{d_name}.png"), dpi=300)
         plt.clf()
+        print(f"[{score} - {domain} - {d_name}] plotted.")
 
 
 if __name__ == "__main__":
