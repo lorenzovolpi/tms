@@ -1,5 +1,6 @@
 import os
 from argparse import ArgumentParser
+from glob import glob
 
 os.environ["OPENBLAS_NUM_THREADS"] = os.environ["MKL_NUM_THREADS"] = os.environ["OMP_NUM_THREADS"] = str(1)
 from typing import Literal, Self
@@ -145,31 +146,31 @@ class rqscore:
         return _bias, p_value
 
 
+def res_dir(score, domain="*"):
+    return os.path.join(env.root_dir, "stattest", score, domain)
+
+
 def local_path(score, domain, d_name, h_name):
-    res_dir = os.path.join(env.root_dir, "tms", "stattest", score, domain)
-    os.makedirs(res_dir, exist_ok=True)
-    return os.path.join(res_dir, f"{h_name}__{d_name}.parquet")
+    dir = res_dir(score, domain)
+    os.makedirs(dir, exist_ok=True)
+    return os.path.join(dir, f"{h_name}__{d_name}.parquet")
 
 
-def compute_score(domain, score: Literal["rscore", "rqscore"], plot=False):
+def compute_score(domain, score: Literal["rscore", "rqscore"]):
 
     info_paths = load_info_paths(domain=domain)
-    datasets = ["cifar10"]
-    results = []
     for path in info_paths:
         p = PretainInfo.load(path, fast=True)
         d_name = dataset_map.get(p.d_info.name, p.d_info.name)
-        h_name = clsf_map.get(p.h_info.name, p.h_info.name)
-        if p.d_info.name not in datasets:
-            continue
+        h_name = clsf_map.get(p.h_info.full_name, p.h_info.full_name)
+
+        print(f"{p.h_info.name}@{p.d_info.name}:")
 
         dest_path = local_path(score, domain, d_name, h_name)
         if os.path.exists(dest_path):
-            _df = pd.read_parquet(dest_path)
-            results.append(_df)
-            print("loaded.\n")
+            print("already computed.\n")
+            continue
 
-        print(f"{p.h_info.name}@{p.d_info.name}:")
         D = p.load_dataset_bundle()
         h = p.load_pretrained_classifier(D)
 
@@ -185,6 +186,7 @@ def compute_score(domain, score: Literal["rscore", "rqscore"], plot=False):
             i_bias, i_pval = scorer.score(Ui.X)
             data.append(
                 dict(
+                    domain=domain,
                     dataset=d_name,
                     classifier=h_name,
                     bias=i_bias,
@@ -195,31 +197,55 @@ def compute_score(domain, score: Literal["rscore", "rqscore"], plot=False):
         _df = pd.DataFrame(data)
         _df.to_parquet(dest_path)
 
-        results.append(_df)
-
         print()
 
-    df = pd.concat(results)
+
+def load_scores(score) -> pd.DataFrame:
+    dfs = []
+    for path in glob(os.path.join(res_dir(score), "**", "*.parquet"), recursive=True):
+        dfs.append(pd.read_parquet(path))
+
+    return pd.concat(dfs, axis=0)
+
+
+def show_scores(score):
+    df = load_scores(score)
+
     df["reject"] = df["p_value"] < 0.05
     pivot = pd.pivot_table(df, index=["dataset"], columns=["classifier"], values=["reject"])
     print(pivot.to_string())
 
-    if plot:
-        plot_dir = os.path.join(env.root_dir, "tms", "plots", "stattest")
-        os.makedirs(plot_dir, exist_ok=True)
-        for d_name in df["dataset"].unique():
-            ddf = df.loc[df["dataset"] == d_name, :]
-            plot = sns.histplot(ddf, x="p_value", hue="classifier", kde=True)
-            plot.set_xlim(0, 1)
-            plt.savefig(os.path.join(plot_dir, f"{score}_{domain}_{d_name}.png"), dpi=300)
-            plt.clf()
+
+def plot_scores(score):
+    df = load_scores(score)
+
+    plot_dir = os.path.join(env.root_dir, "tms", "plots", "stattest")
+    os.makedirs(plot_dir, exist_ok=True)
+
+    datasets = df[["domain", "dataset"]].drop_duplicates().values.tolist()
+
+    for domain, d_name in datasets:
+        ddf = df.loc[df["dataset"] == d_name, :]
+        plot = sns.histplot(ddf, x="p_value", hue="classifier", kde=True)
+        plot.set_xlim(0, 1)
+        plt.savefig(os.path.join(plot_dir, f"{score}_{domain}_{d_name}.png"), dpi=300)
+        plt.clf()
 
 
 if __name__ == "__main__":
     parser = ArgumentParser()
     parser.add_argument("-s", "--score", action="store", dest="score", choices=["rscore", "rqscore"])
-    parser.add_argument("-d", "--domain", action="store", choices=["text", "image"])
+    parser.add_argument("-d", "--domain", action="store", choices=["text", "image", "classic"])
+    parser.add_argument("--compute", action="store_true")
     parser.add_argument("--plot", action="store_true")
+    parser.add_argument("--show", action="store_true")
+
     pargs = parser.parse_args()
 
-    compute_score(pargs.domain, pargs.score, plot=pargs.plot)
+    if pargs.compute:
+        compute_score(pargs.domain, pargs.score)
+
+    if pargs.show:
+        show_scores(pargs.score)
+    if pargs.plot:
+        plot_scores(pargs.score)
